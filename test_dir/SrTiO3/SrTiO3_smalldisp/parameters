@@ -1,0 +1,11 @@
+name = SrTiO3
+nconf = 10
+nfits = 1
+n0 = 3
+n1 = 3
+n2 = 3
+cutoff = -3
+third = True
+use_smalldisp = True
+calc_symm = True
+symm_acoustic = True

@@ -1,0 +1,10 @@
+nconf = 3
+nfits = 1
+n0 = 4
+n1 = 4
+n2 = 4
+cutoff = -5
+third = True
+use_smalldisp = True
+calc_symm = True
+symm_acoustic = True

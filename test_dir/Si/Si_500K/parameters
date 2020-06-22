@@ -1,0 +1,15 @@
+T_K = 500
+nconf = 3
+nfits = 20
+n0 = 4
+n1 = 4
+n2 = 4
+cutoff = -5
+third = True
+use_pressure = False
+calc_symm = False
+symm_acoustic = True
+imaginary_freq = 1.0
+tolerance = 0.02
+grid = 9
+memory = 0.7
