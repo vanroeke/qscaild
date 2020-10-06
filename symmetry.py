@@ -61,7 +61,7 @@ def get_symmetry_information(sposcar_file):
 
     supercell_matrix = np.diag([1, 1, 1])
 
-    structure = phonopy.interface.read_crystal_structure(sposcar_file,
+    structure = phonopy.interface.calculator.read_crystal_structure(sposcar_file,
                                                          "vasp")[0]
     natoms = structure.get_number_of_atoms()
 
@@ -496,10 +496,10 @@ def compute_irr_fc(sposcar_file,
     """
     fcs_to_fit = gradient.read_FORCE_CONSTANTS(sposcar_file, fcs_file)
     ntot = len(fcs_to_fit)
-    mat_rec_ac = np.load(mat_rec_ac_file)
+    mat_rec_ac = np.load(mat_rec_ac_file, allow_pickle = True)
     if calc_reshape:
         reshape_mat_rec_ac(mat_rec_ac, mat_rec_ac_reshaped_file, ntot)
-    mat_rec_ac_new = np.load(mat_rec_ac_reshaped_file)[()]
+    mat_rec_ac_new = np.load(mat_rec_ac_reshaped_file, allow_pickle = True)[()]
     print("computing irreducible elements")
     fit = sp.sparse.linalg.lsqr(mat_rec_ac_new,
                                 np.rollaxis(fcs_to_fit, 2, 1).ravel())

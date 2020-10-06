@@ -126,7 +126,7 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
 
         print("Load 2nd order symmetry information")
         mat_rec_ac = np.load("../mat_rec_ac_2nd_" + str(n[0]) + "x" +
-                             str(n[1]) + "x" + str(n[2]) + ".npy")
+                             str(n[1]) + "x" + str(n[2]) + ".npy", allow_pickle = True)
         nirr_ac = len(mat_rec_ac)
         poscar = generate_conf.read_POSCAR("POSCAR")
 
@@ -138,12 +138,12 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                 "return", n[0], n[1], n[2], cutoff)
             mat_rec_ac_3rd = np.load("../mat_rec_ac_3rd_" + str(n[0]) + "x" +
                                      str(n[1]) + "x" + str(n[2]) + "_" +
-                                     str(cutoff) + ".npy")[()]
+                                     str(cutoff) + ".npy", allow_pickle = True)[()]
             print(("shape: " + str(mat_rec_ac_3rd.shape)))
             if (symm_acoustic):
                 ker_ac_3rd = np.load("../ker_ac_3rd_" + str(n[0]) + "x" +
                                      str(n[1]) + "x" + str(n[2]) + "_" +
-                                     str(cutoff) + ".npy")
+                                     str(cutoff) + ".npy", allow_pickle = True)
             else:
                 ker_ac_3rd = np.identity(mat_rec_ac_3rd.shape[0])
             M, N = symmetry.calc_cells_dispmats(n)

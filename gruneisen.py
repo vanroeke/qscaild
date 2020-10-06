@@ -158,7 +158,7 @@ def write_mode_gruneisen(poscar_file, n, fcs_file, fcs_3rd_file,
         for iblock in range(nblocks)
     ])
 
-    structure = phonopy.interface.read_crystal_structure(poscar_file,
+    structure = phonopy.interface.calculator.read_crystal_structure(poscar_file,
                                                          "vasp")[0]
     fc = phonopy.file_IO.parse_FORCE_CONSTANTS(fcs_file)
 
@@ -307,7 +307,7 @@ def write_mode_gruneisen_gamma(poscar_file, sposcar_file, n, fcs_file,
         for iblock in range(nblocks)
     ])
 
-    structure = phonopy.interface.read_crystal_structure(sposcar_file,
+    structure = phonopy.interface.calculator.read_crystal_structure(sposcar_file,
                                                          "vasp")[0]
     fc = phonopy.file_IO.parse_FORCE_CONSTANTS(fcs_file)
 

@@ -107,7 +107,7 @@ def write_displacement_matrix(poscar_file, fcs_file, T, n, use_smalldisp,
 
     supercell_matrix = np.diag([na, nb, nc])
 
-    structure = phonopy.interface.read_crystal_structure(poscar_file,
+    structure = phonopy.interface.calculator.read_crystal_structure(poscar_file,
                                                          "vasp")[0]
     fc = phonopy.file_IO.parse_FORCE_CONSTANTS(fcs_file)
 
@@ -191,7 +191,7 @@ def write_displacement_matrix_gamma(sposcar_file, fcs_file, T, n,
 
     supercell_matrix = np.diag([na, nb, nc])
 
-    structure = phonopy.interface.read_crystal_structure(sposcar_file,
+    structure = phonopy.interface.calculator.read_crystal_structure(sposcar_file,
                                                          "vasp")[0]
     fc = phonopy.file_IO.parse_FORCE_CONSTANTS(fcs_file)
 
