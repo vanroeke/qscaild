@@ -43,7 +43,9 @@ def str2bool(v):
 if (not os.path.isfile("POTCAR")) or (not os.path.isfile("INCAR")) or (
         not os.path.isfile("POSCAR")) or (not os.path.isfile("SPOSCAR")):
     with open("finished", "w") as file:
-        file.write("finished: error\n")
+        file.write(
+            "finished: error\n"
+            "some file is missing: check POSCAR, SPOSCAR, POTCAR, INCAR")
     print("some file is missing: check POSCAR, SPOSCAR, POTCAR, INCAR")
     comm.Abort()
     sys.exit(1)
@@ -184,7 +186,9 @@ n = [n0, n1, n2]
 
 if (not os.path.isfile("FORCE_CONSTANTS")) and (not use_smalldisp):
     with open("finished", "w") as file:
-        file.write("finished: error\n")
+        file.write(
+            "finished: error\n"
+            "some file is missing: check FORCE_CONSTANTS")
     print("some file is missing: check FORCE_CONSTANTS")
     comm.Abort()
     sys.exit(1)

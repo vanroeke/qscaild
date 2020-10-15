@@ -74,7 +74,10 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
         iteration = 1
         if os.path.isfile("QSCAILD.db"):
             with open("finished", "w") as file:
-                file.write("finished: error\n")
+                file.write(
+                    "finished: error\n"
+                    "Problem: no previous iteration but database already present,"
+                    " remove file QSCAILD.db")
             comm.Abort()
             sys.exit(
                 "Problem: no previous iteration but database already present,"
@@ -110,7 +113,10 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
             iteration = int(f.readline().split()[0])
         if not os.path.isfile("QSCAILD.db"):
             with open("finished", "w") as file:
-                file.write("finished: error\n")
+                file.write(
+                    "finished: error\n"
+                    "Problem: previous iterations but no database is present,"
+                    " remove file iteration")
             comm.Abort()
             sys.exit("Problem: previous iterations but no database is present,"
                      " remove file iteration")
