@@ -67,7 +67,7 @@ use_pressure = "False"
 #Values of the pressure on the diagonal of the tensor
 pressure = np.array([0., 0., 0.])
 #If atomic positions are optimized
-optimize_positions = "False"
+optimize_positions = False
 #Whether small displacements are used
 use_smalldisp = False
 #Whether symmetries are computed
