@@ -78,7 +78,7 @@ def get_symmetry_information(sposcar_file):
 
     logging.debug("About to classify atom pairs")
     permutations = find_correspondences(structure, symmetry, SYMPREC)
-    print("permutations: " + str(permutations))
+    #print("permutations: " + str(permutations))
     equivalences = classify_pairs(structure, permutations)
     logging.debug("{0} equivalence classes found".format(len(equivalences)))
 
@@ -462,8 +462,8 @@ def calc_cells_dispmats(n):
     ncells = n[0] * n[1] * n[2]
     corresp = calc_corresp(poscar, sposcar, [n[0], n[1], n[2]])
     corresp2 = calc_corresp(poscar, sposcar2, [n[0], n[1], n[2]])
-    print("corresp: " + str(corresp))
-    print("corresp2: " + str(corresp2))
+    #print("corresp: " + str(corresp))
+    #print("corresp2: " + str(corresp2))
     M = np.zeros((ncells, natoms * ncells, natoms * ncells))
     for icell in range(ncells):
         for iatom in range(natoms * ncells):
@@ -484,6 +484,41 @@ def calc_cells_dispmats(n):
         N[iatom, icell * natoms + i1cell] = 1.
     return M, N
 
+def calc_cells_dispmats_paral(n,rank,size):
+    """
+    Computes the correspondence between the SPOSCAR in the thirdorder
+    convention and the one in the generate_conf convention.
+    Parallel version of calc_cells_dispmats
+    """
+    poscar = generate_conf.read_POSCAR("POSCAR")
+    sposcar = thirdorder_common.gen_SPOSCAR(poscar, n[0], n[1], n[2])
+    sposcar2 = generate_conf.read_POSCAR("SPOSCAR")
+    natoms = poscar["numbers"].sum()
+    ncells = n[0] * n[1] * n[2]
+    corresp = calc_corresp(poscar, sposcar, [n[0], n[1], n[2]])
+    corresp2 = calc_corresp(poscar, sposcar2, [n[0], n[1], n[2]])
+    #print("corresp: " + str(corresp))
+    #print("corresp2: " + str(corresp2))
+    M = np.zeros((ncells, natoms * ncells, natoms * ncells))
+    for icell in range(rank,ncells,size):
+        for iatom in range(natoms * ncells):
+            nacell, nbcell, nccell = np.unravel_index(icell,
+                                                      (n[0], n[1], n[2]))
+            i1cell, na1cell, nb1cell, nc1cell = corresp[iatom]
+            jatom = corresp2.index([
+                i1cell, (na1cell + nacell) % n[0], (nb1cell + nbcell) % n[1],
+                (nc1cell + nccell) % n[2]
+            ])
+            M[icell, iatom, jatom] = 1.
+    np.set_printoptions(threshold=sys.maxsize)
+    N = np.zeros((ncells * natoms, ncells * natoms))
+    for iatom in range(rank,natoms * ncells,size):
+        i1cell, na1cell, nb1cell, nc1cell = corresp2[iatom]
+        icell = np.ravel_multi_index((na1cell, nb1cell, nc1cell),
+                                     (n[0], n[1], n[2]))
+        N[iatom, icell * natoms + i1cell] = 1.
+    return M, N
+
 
 def compute_irr_fc(sposcar_file,
                    fcs_file,
@@ -496,10 +531,10 @@ def compute_irr_fc(sposcar_file,
     """
     fcs_to_fit = gradient.read_FORCE_CONSTANTS(sposcar_file, fcs_file)
     ntot = len(fcs_to_fit)
-    mat_rec_ac = np.load(mat_rec_ac_file, allow_pickle = True)
+    mat_rec_ac = np.load(mat_rec_ac_file, allow_pickle=True)
     if calc_reshape:
         reshape_mat_rec_ac(mat_rec_ac, mat_rec_ac_reshaped_file, ntot)
-    mat_rec_ac_new = np.load(mat_rec_ac_reshaped_file, allow_pickle = True)[()]
+    mat_rec_ac_new = np.load(mat_rec_ac_reshaped_file, allow_pickle=True)[()]
     print("computing irreducible elements")
     fit = sp.sparse.linalg.lsqr(mat_rec_ac_new,
                                 np.rollaxis(fcs_to_fit, 2, 1).ravel())
@@ -708,3 +743,54 @@ def classify_pairs(structure, permutations):
             # We rely on operation 0 being the identity.
             nruter.append([(pair, 0, False)])
     return tuplify(nruter)
+
+
+def symmetrize_forces(sposcar_file, forces):
+    """
+    Symmetrize the average force such that all equivalent
+    atoms experience the same force and atoms whose positions
+    are fixed by symmetry experience no force.
+    """
+    SYMPREC = 1e-5
+
+    if not os.path.isfile(sposcar_file):
+        sys.exit("The specified SPOSCAR file does not exist.")
+
+    structure = phonopy.interface.calculator.read_crystal_structure(sposcar_file,
+                                                         "vasp")[0]
+    symmetry = phonopy.structure.symmetry.Symmetry(structure, symprec=SYMPREC)
+    dataset = symmetry.get_dataset()
+    operations = symmetry.get_symmetry_operations()
+    translations = operations["translations"]
+    rotations = operations["rotations"]
+
+    symm_force = np.zeros(forces.shape)
+
+    pos = symmetry._cell.get_scaled_positions()
+    map_operations = np.zeros(len(pos), dtype='intc')
+    map_rotations = np.zeros((len(pos),3,3))
+    occurences = np.zeros(pos.shape[0])
+    for i, eq_atom in enumerate(symmetry._map_atoms):
+    # old_version
+#   #rotated_force = []
+        for j, (r, t) in enumerate(
+            zip(operations['rotations'], operations['translations'])):
+            diff = np.dot(pos[i], r.T) + t - pos[eq_atom]
+            if (abs(diff - np.rint(diff)) < SYMPREC).all():
+                map_operations[i] = j
+                map_rotations[i] = r
+# old version
+#                rotated_force.append(np.dot(forces[i], r.T))
+#        rotated_force = np.array(rotated_force)
+#        symm_force[eq_atom]+=rotated_force[0]*np.all(rotated_force == rotated_force[0],axis=0)
+#        occurences[eq_atom]+=1
+# new version
+                symm_force[eq_atom]+=(np.dot(forces[i], r.T))
+                occurences[eq_atom]+=1
+
+    symm_force/=occurences[:,np.newaxis]
+    for i, eq_atom in enumerate(symmetry._map_atoms):
+        symm_force[i] = np.dot(symm_force[eq_atom],map_rotations[i])
+
+    return np.around(symm_force,decimals=6)
+

@@ -41,6 +41,7 @@ import thermal_disp
 import gradient
 import symmetry
 import gruneisen
+import json
 
 import math
 import scipy as sp
@@ -57,10 +58,10 @@ import thirdorder_save
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
-
+size = comm.Get_size()
 
 def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
-                        pressure, use_smalldisp, calc_symm, symm_acoustic,
+                        pressure, optimize_positions, use_smalldisp, calc_symm, symm_acoustic,
                         imaginary_freq, enforce_acoustic, grid, tolerance,
                         pdiff, memory, mixing):
     """
@@ -74,10 +75,7 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
         iteration = 1
         if os.path.isfile("QSCAILD.db"):
             with open("finished", "w") as file:
-                file.write(
-                    "finished: error\n"
-                    "Problem: no previous iteration but database already present,"
-                    " remove file QSCAILD.db")
+                file.write("finished: error\n")
             comm.Abort()
             sys.exit(
                 "Problem: no previous iteration but database already present,"
@@ -99,7 +97,7 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                 if calc_symm:
                     symmetry.save_symmetry_information_3rd(
                         [n[0], n[1], n[2], cutoff], third, symm_acoustic)
-            renew_configurations(nconf, T, n, iteration, "POSCAR", "SPOSCAR",
+            calc_dirs=renew_configurations(nconf, T, n, iteration, "POSCAR", "SPOSCAR",
                                  "FORCE_CONSTANTS", use_smalldisp,
                                  imaginary_freq, grid)
             comm.Barrier()
@@ -107,16 +105,15 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                 with open("iteration", "w") as f:
                     f.write(str(iteration) + "\n")
         return
-
+    comm.Barrier()
+    mat_rec_ac_3rd_shape=None
+    mat_rec_ac_shape=None    
     if rank == 0:
         with open("iteration", "r") as f:
             iteration = int(f.readline().split()[0])
         if not os.path.isfile("QSCAILD.db"):
             with open("finished", "w") as file:
-                file.write(
-                    "finished: error\n"
-                    "Problem: previous iterations but no database is present,"
-                    " remove file iteration")
+                file.write("finished: error\n")
             comm.Abort()
             sys.exit("Problem: previous iterations but no database is present,"
                      " remove file iteration")
@@ -132,7 +129,8 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
 
         print("Load 2nd order symmetry information")
         mat_rec_ac = np.load("../mat_rec_ac_2nd_" + str(n[0]) + "x" +
-                             str(n[1]) + "x" + str(n[2]) + ".npy", allow_pickle = True)
+                             str(n[1]) + "x" + str(n[2]) + ".npy", allow_pickle=True)
+        mat_rec_ac_shape=mat_rec_ac.shape
         nirr_ac = len(mat_rec_ac)
         poscar = generate_conf.read_POSCAR("POSCAR")
 
@@ -144,25 +142,85 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                 "return", n[0], n[1], n[2], cutoff)
             mat_rec_ac_3rd = np.load("../mat_rec_ac_3rd_" + str(n[0]) + "x" +
                                      str(n[1]) + "x" + str(n[2]) + "_" +
-                                     str(cutoff) + ".npy", allow_pickle = True)[()]
+                                     str(cutoff) + ".npy", allow_pickle=True)[()]
             print(("shape: " + str(mat_rec_ac_3rd.shape)))
+            mat_rec_ac_3rd_shape=mat_rec_ac_3rd.shape
             if (symm_acoustic):
                 ker_ac_3rd = np.load("../ker_ac_3rd_" + str(n[0]) + "x" +
                                      str(n[1]) + "x" + str(n[2]) + "_" +
-                                     str(cutoff) + ".npy", allow_pickle = True)
+                                     str(cutoff) + ".npy", allow_pickle=True)
             else:
                 ker_ac_3rd = np.identity(mat_rec_ac_3rd.shape[0])
-            M, N = symmetry.calc_cells_dispmats(n)
+    
+    if third and rank != 0:
+    #    mat_rec_ac = np.load("../mat_rec_ac_2nd_" + str(n[0]) + "x" +
+    #                         str(n[1]) + "x" + str(n[2]) + ".npy", allow_pickle=True)
+        mat_rec_ac_3rd = np.load("../mat_rec_ac_3rd_" + str(n[0]) + "x" +
+                                    str(n[1]) + "x" + str(n[2]) + "_" +
+                                    str(cutoff) + ".npy", allow_pickle=True)[()]
 
-        if third:
-            x_data, y_data, weights = gradient.prepare_fit_3rd_weights(
-                mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acoustic,
-                iteration_min)
+
+    comm.Barrier()
+    #Parallel computation of the displacement matrices
+    M, N = symmetry.calc_cells_dispmats_paral(n,rank,size)
+    
+    rcv_buf_M=np.empty((M.shape[0],M.shape[1],M.shape[2]))
+    rcv_buf_N=np.empty((N.shape[0],N.shape[1]))
+    comm.Barrier()
+    comm.Allreduce(N,rcv_buf_N, op=MPI.SUM)
+    comm.Allreduce(M,rcv_buf_M, op=MPI.SUM)
+    N=rcv_buf_N
+    M=rcv_buf_M
+    os.sync()
+    comm.Barrier()
+
+
+    if third: # Parallel computation of third order forces
+        if rank==0:    
+            x_data, y_data, weights,sposcar,config = gradient.prep_prepare_fit_3rd_weights(
+                mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acoustic, iteration_min)
+            #function arguments for third order FCs
+            args=[enforce_acoustic,
+                            iteration_min,sposcar,config]
+            xdata_shape=(mat_rec_ac_3rd.shape[0],len(config)*len(gradient.calc_3rd_forces(mat_rec_ac_3rd,M,N,json.loads(config[0][1]))))
+            krange=mat_rec_ac_3rd.shape[0]
+        
         else:
+            xdata_shape=None
+            args=None
+            krange=None
+        os.sync()
+        comm.Barrier()
+        #Transfer to all nodes
+        args=comm.bcast(args,root=0)
+        xdata_shape=comm.bcast(xdata_shape,root=0)
+        xdata=np.zeros(xdata_shape)
+        krange=comm.bcast(krange,root=0)
+        comm.Barrier()
+        #Distribution of the calculation
+        for k in range(rank,krange,size):
+            xdata[k]=gradient.parallel_loop(k, mat_rec_ac_3rd, M, N, *args)
+        
+        #Transfering back to rank 0
+        recv_buf=None 
+        if rank==0:
+            recv_buf=np.empty([xdata.shape[0],xdata.shape[1]])
+        os.sync()
+        comm.Barrier()
+        comm.Reduce(xdata,recv_buf,op=MPI.SUM,root=0)
+        comm.Barrier()
+        if rank==0:
+            xdata_3rd=recv_buf
+            x_data = np.concatenate((x_data, np.transpose(np.array(xdata_3rd))),axis=1)
+            #np.savetxt("test.xdata",x_data)
+        
+    else:
+        if rank==0:
             x_data, y_data, weights = gradient.prepare_fit_weights(
-                mat_rec_ac, enforce_acoustic, iteration_min)
+                    mat_rec_ac, enforce_acoustic, iteration_min)
 
-        clf = linear_model.LinearRegression(fit_intercept=False)
+    if rank==0:   
+        clf = linear_model.LinearRegression(fit_intercept=False, n_jobs=-1)
         clf.fit(x_data, y_data, weights)
 
         if third:
@@ -192,6 +250,8 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                 "SPOSCAR_CURRENT", "FORCE_CONSTANTS_CURRENT")
         gradient.print_FORCE_CONSTANTS(force_constants,
                                        "FORCE_CONSTANTS_CURRENT")
+
+
         if third:
             phifull = symmetry.reconstruct_3rd_fcs(poscar, sposcar, ker_ac_3rd,
                                                    coef_3rd, wedge, list4,
@@ -211,7 +271,7 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
     comm.Barrier()
 
     #Compute external pressure and updates lattice parameter if necessary
-    if use_pressure in ['cubic', 'tetragonal', 'orthorombic']:
+    if use_pressure in ['cubic', 'tetragonal', 'orthorhombic','fixab']:
 
         if os.path.isfile("POSCAR_PARAM") and os.path.isfile(
                 "SPOSCAR_PARAM") and rank == 0:
@@ -261,11 +321,16 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                     [np.mean(factor),
                      np.mean(factor),
                      np.mean(factor)])
+
             if use_pressure == 'tetragonal':
                 factor = np.array([
                     0.5 * factor[0] + 0.5 * factor[1],
                     0.5 * factor[0] + 0.5 * factor[1], factor[2]
                 ])
+
+            if use_pressure == 'fixab':
+                factor = np.array([1,1, factor[2]])
+
 
             if use_pressure == 'cubic':
                 sposcar_current[
@@ -281,19 +346,27 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                     poscar_current["lattvec"][
                         i, i] = poscar_current["lattvec"][i, i] * factor[i]
 
-            # Make parameter update of the poscar using non-harmonic part
-            # of forces
-            if os.path.isfile("POSCAR_PARAM") and os.path.isfile(
-                    "SPOSCAR_PARAM"):
-                param_grad = gradient.calc_delta_Ep_weights(
-                    force_constants, sposcar_param, iteration_min, weights)
-                with open("out_parameter", 'a') as file:
+
+
+            # Update atomic positions based on the symmetrized forces and on force constants
+            if optimize_positions:
+                disp = gradient.disp_optimize_positions_weights(
+                    force_constants, 'SPOSCAR', iteration_min, weights)
+
+                corresp = symmetry.calc_corresp(poscar_current, sposcar_current, n)
+                folded_disp = np.zeros(poscar["numbers"].sum()*3)
+                for iatom in range(len(corresp)):
+                    for direction in range(3):
+                        folded_disp[corresp[iatom][0]*3+direction] = disp[iatom*3+direction]
+
+                with open("out_atomic_positions", 'a') as file:
                     file.write("iteration: " + str(iteration) + "\n")
-                    file.write("parameter gradient: " + str(param_grad) + "\n")
-                poscar_current[
-                    "positions"] -= poscar_param["positions"] * param_grad
-                sposcar_current[
-                    "positions"] -= sposcar_param["positions"] * param_grad
+                    file.write("displacement in nm: " + str(disp.tolist()) + "\n")
+                    file.write("folded displacement in nm: "
+                                + str(folded_disp.tolist()) + "\n")
+
+                sposcar_current = generate_conf.distort_POSCAR(sposcar_current, disp)
+                poscar_current = generate_conf.distort_POSCAR(poscar_current, folded_disp)
 
             generate_conf.write_POSCAR(poscar_current, "POSCAR_CURRENT")
             generate_conf.write_POSCAR(sposcar_current, "SPOSCAR_CURRENT")
@@ -336,13 +409,13 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
 
     iteration += 1
 
-    renew_configurations(nconf, T, n, iteration, "POSCAR_CURRENT",
+    calc_dirs=renew_configurations(nconf, T, n, iteration, "POSCAR_CURRENT",
                          "SPOSCAR_CURRENT", "FORCE_CONSTANTS_CURRENT",
                          use_smalldisp, imaginary_freq, grid)
     if rank == 0:
         with open("iteration", "w") as f:
             f.write(str(iteration) + "\n")
-    return
+    return calc_dirs
 
 
 def renew_configurations(nconf, T, n, iteration, poscar_file, sposcar_file,
@@ -363,7 +436,7 @@ def renew_configurations(nconf, T, n, iteration, poscar_file, sposcar_file,
             for r in dirs:
                 file.write(r + "\n")
 
-    return
+    return dirs
 
 
 def test_convergence(iteration, tolerance):

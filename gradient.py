@@ -123,7 +123,7 @@ def read_vasp_forces(filename):
         if a.attrib["name"] == "forces":
             break
     nruter = []
-    for i in a.getchildren():
+    for i in a.iter(tag="v"):
         nruter.append([float(j) for j in i.text.split()])
     nruter = np.array(nruter, dtype=np.double)
 
@@ -143,7 +143,7 @@ def read_vasp_stress(filename):
         if a.attrib["name"] == "stress":
             break
     nruter = []
-    for i in a.getchildren():
+    for i in a.iter(tag="v"):
         nruter.append([float(j) for j in i.text.split()])
     nruter = np.array(nruter, dtype=np.double)
     print("stress tensor: " + str(nruter.tolist()) + "\n")
@@ -209,7 +209,7 @@ def read_vasp_energy(filename):
     calculation = xml_tree.find("calculation")
     for a in calculation.findall("energy"):
         nruter = 0.
-        for i in a.getchildren():
+        for i in a.iter(tag="i"):
             if i.attrib["name"] == "e_fr_energy":
                 nruter = float(i.text)
 
@@ -229,7 +229,7 @@ def read_vasp_fermi(filename):
     calculation = xml_tree.find("calculation")
     for a in calculation.findall("dos"):
         nruter = 0.
-        for i in a.getchildren():
+        for i in a.iter(tag='i'):
             if i.attrib["name"] == "efermi":
                 nruter = float(i.text)
                 break
@@ -397,24 +397,26 @@ def prepare_fit(mat_rec_ac, enforce_acoustic, iteration_min):
     conn.commit()
     conn.close()
 
-    ydata = []
-    xdata = []
+    #ydata = []
+    #xdata = []
     natoms = len(json.loads(config[0][1])) // 3
+    xdata=np.empty(len((mat_rec_ac),len(config)*3*natoms))
     for k in range(len(mat_rec_ac)):
-        xdata_int = []
-        for c in config:
+        xdata_int = np.empty((len(config),3*natoms))
+        for c in range(len(config)):
             disp = 10. * np.array(json.loads(
-                c[1]))  ##Put displacements in Angstroms
-            xdata_int.append(-mat_rec_ac[k].dot(disp))
+                config[c][1]))  ##Put displacements in Angstroms
+            xdata_int[c]=(-mat_rec_ac[k].dot(disp))
         if enforce_acoustic:
             for alpha in range(3):
                 disp = np.zeros((natoms, 3))
                 disp[:, alpha] = 0.01 * np.ones(natoms).T
                 xdata_int.append(-mat_rec_ac[k].dot(np.ravel(disp)))
-        xdata.append(np.ravel(xdata_int))
+        xdata[k]=(np.ravel(xdata_int))
     xdata = np.transpose(np.array(xdata))
-    for c in config:
-        ydata.append(np.ravel(np.array(json.loads(c[2]))))
+    ydata=np.empty(np.array(len(config),3*natoms))
+    for c in range(len(config)):
+        ydata[c]=(np.ravel(np.array(json.loads(c[2]))))
     if enforce_acoustic:
         for alpha in range(3):
             ydata.append(np.zeros(natoms * 3))
@@ -444,27 +446,30 @@ def prepare_fit_weights(mat_rec_ac, enforce_acoustic, iteration_min):
     natoms = int(len(json.loads(config[0][1])) / 3)
 
     sposcar = generate_conf.read_POSCAR("SPOSCAR_CURRENT")
-
+    xdata=np.empty((len(mat_rec_ac),len(config)*3*natoms))
     for k in range(len(mat_rec_ac)):
-        xdata_int = []
-        for c in config:
-            sposcar_old = generate_conf.read_POSCAR("SPOSCAR_" + str(c[5]))
-            newdisp = np.array(json.loads(c[1])) + np.ravel(
+        xdata_int = np.empty((len(config),3*natoms))
+        for c in range(len(config)):
+            sposcar_old = generate_conf.read_POSCAR("SPOSCAR_" + str(config[c][5]))
+            newdisp = np.array(json.loads(config[c][1])) + np.ravel(
                 np.dot(sposcar_old["lattvec"], sposcar_old["positions"]) -
                 np.dot(sposcar["lattvec"], sposcar["positions"]))
             disp = 10. * newdisp  ##Put displacements in Angstroms
-            xdata_int.append(-mat_rec_ac[k].dot(disp))
+            xdata_int[c]=(-mat_rec_ac[k].dot(disp))
         if enforce_acoustic:
             for alpha in range(3):
                 disp = np.zeros((natoms, 3))
                 disp[:, alpha] = 0.01 * np.ones(natoms).T
                 xdata_int.append(-mat_rec_ac[k].dot(np.ravel(disp)))
-        xdata.append(np.ravel(xdata_int))
+        xdata[k]=(np.ravel(xdata_int))
     xdata = np.transpose(np.array(xdata))
-    for c in config:
-        ydata.append(np.ravel(np.array(json.loads(c[2]))))
-        print("weight of config "+str(c[0])+": "+str(np.exp(c[4]-c[3])))
-        weights.append(np.exp(c[4]-c[3])*np.ones(natoms*3))
+    ydata = np.empty((len(config),len(np.ravel(np.array(json.loads(config[0][2]))))))
+    weights=np.empty((len(config),natoms*3))
+    for c in range(len(config)):
+        #print(len(json.loads(config[c][2])))
+        ydata[c]=np.ravel(np.array(json.loads(config[c][2])))
+        print("weight of config "+str(config[c][0])+": "+str(np.exp(config[c][4]-config[c][3])))
+        weights[c]=(np.exp(config[c][4]-config[c][3])*np.ones(natoms*3))
     if enforce_acoustic:
         for alpha in range(3):
             ydata.append(np.zeros(natoms * 3))
@@ -486,7 +491,7 @@ def prepare_fit_weights(mat_rec_ac, enforce_acoustic, iteration_min):
         with open("out_fit","a") as file:
             file.write("mean_forces: "+str(mean_forces.tolist())+"\n")
             file.write("symm_mean_force: "+str(symm_mean_force.tolist())+"\n")
-        ydata -= symm_mean_force[np.newaxis,:]
+        #ydata -= symm_mean_force[np.newaxis,:]
 
     ydata = np.ravel(ydata)
     weights = np.ravel(weights)
@@ -513,15 +518,15 @@ def prepare_fit_3rd(mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acoustic,
     conn.close()
 
     print("start preparing 3rd order part")
-    xdata_3rd = []
+    xdata_3rd = np.empty((range(len(mat_rec_ac_3rd.shape[0]))))
     natoms = len(json.loads(config[0][1])) // 3
     for k in range(mat_rec_ac_3rd.shape[0]):
         print("preparing data number " + str(k))
-        xdata_int = []
         fcs_3rd_full = mat_rec_ac_3rd[k]
         #print "full fcs matrix has been calculated"
-        for c in config:
-            xdata_int.append(
+        xdata_int = np.empty((range(len(config)),len(calc_3rd_forces(fcs_3rd_full,M,N,json.loads(config[0][1])))))
+        for c in range(len(config)):
+            xdata_int[c]=(
                 calc_3rd_forces(fcs_3rd_full, M, N, json.loads(c[1])))
 
         if enforce_acoustic:
@@ -531,18 +536,16 @@ def prepare_fit_3rd(mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acoustic,
                 xdata_int.append(
                     calc_3rd_forces(fcs_3rd_full, M, N, np.ravel(disp)))
 
-        xdata_3rd.append(np.ravel(xdata_int))
+        xdata_3rd[k]=(np.ravel(xdata_int))
     xdata_3rd = np.concatenate((xdata, np.transpose(np.array(xdata_3rd))),
                                axis=1)
 
     return [xdata_3rd, ydata]
 
-
-def prepare_fit_3rd_weights(mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acoustic,
+def prep_prepare_fit_3rd_weights(mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acoustic,
                             iteration_min):
     """
-    Prepare the input for the fit for a 2nd and 3rd order effective
-    Hamiltonian.
+    Function to  prepare the parallel calculation of the weights
     """
 
     xdata, ydata, weights = prepare_fit_weights(mat_rec_ac, enforce_acoustic,
@@ -560,32 +563,37 @@ def prepare_fit_3rd_weights(mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acoustic,
 
     sposcar = generate_conf.read_POSCAR("SPOSCAR_CURRENT")
 
+    return xdata,ydata,weights,sposcar,config
+
+  
+    
+  
+
+def parallel_loop(k, mat_rec_ac_3rd, M, N, enforce_acoustic,
+                            iteration_min,sposcar,config):
+
     print("start preparing 3rd order part")
-    xdata_3rd = []
-    natoms = int(len(json.loads(config[0][1])) / 3)
-    for k in range(mat_rec_ac_3rd.shape[0]):
-        print("preparing data number " + str(k))
-        xdata_int = []
-        fcs_3rd_full = mat_rec_ac_3rd[k]
-        for c in config:
-            sposcar_old = generate_conf.read_POSCAR("SPOSCAR_" + str(c[2]))
-            newdisp = np.array(json.loads(c[1])) + np.ravel(
+    #for k in range(mat_rec_ac_3rd.shape[0]):
+    print("preparing data number " + str(k) + " of "+  str(len(range(mat_rec_ac_3rd.shape[0]))))
+    fcs_3rd_full = mat_rec_ac_3rd[k]
+    xdata_int = np.empty((len(config),len(np.array(calc_3rd_forces(fcs_3rd_full,M,N,json.loads(config[0][1]))))))
+    natoms=int(len(json.loads(config[0][1]))/3)
+    for c in range(len(config)):
+        sposcar_old = generate_conf.read_POSCAR("SPOSCAR_" + str(config[c][2]))
+        newdisp = np.array(json.loads(config[c][1])) + np.ravel(
                 np.dot(sposcar_old["lattvec"], sposcar_old["positions"]) -
                 np.dot(sposcar["lattvec"], sposcar["positions"]))
-            xdata_int.append(calc_3rd_forces(fcs_3rd_full, M, N, newdisp))
+        xdata_int[c]=(calc_3rd_forces(fcs_3rd_full, M, N, newdisp))
 
-        if enforce_acoustic:
-            for alpha in range(3):
-                disp = np.zeros((natoms, 3))
-                disp[:, alpha] = 0.01 * np.ones(natoms).T
-                xdata_int.append(
-                    calc_3rd_forces(fcs_3rd_full, M, N, np.ravel(disp)))
+    if enforce_acoustic:
+        for alpha in range(3):
+            disp = np.zeros((natoms, 3))
+            disp[:, alpha] = 0.01 * np.ones(natoms).T
+            xdata_int.append(
+            calc_3rd_forces(fcs_3rd_full, M, N, np.ravel(disp)))
+    
+    return (np.ravel(xdata_int))
 
-        xdata_3rd.append(np.ravel(xdata_int))
-    xdata_3rd = np.concatenate((xdata, np.transpose(np.array(xdata_3rd))),
-                               axis=1)
-
-    return [xdata_3rd, ydata, weights]
 
 
 def calc_kinetic_term(iteration_min, weights):
@@ -746,3 +754,52 @@ def calc_delta_Ep_weights(fcs, sposcar_param, iteration_min, weights):
 
     #delta_Ep is in eV
     return delta_Ep
+
+def disp_optimize_positions_weights(fcs, sposcar_file, iteration_min, weights):
+    """
+    Calculates and returns the displacement that optimizes atomic positions
+    """
+    conn = sqlite3.connect("QSCAILD.db")
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT id, displacements, forces "
+        "FROM configurations WHERE iteration >=?", (iteration_min, ))
+    config = cur.fetchall()
+
+    conn.commit()
+    conn.close()
+
+    forces = np.array([json.loads(c[2]) for c in config])
+
+    newweights = weights.reshape((len(config), -1))[:, 0]
+    mean_forces = np.sum(
+        forces * newweights[:, np.newaxis, np.newaxis],
+        axis=0) / np.sum(newweights)
+
+    symm_forces = symmetry.symmetrize_forces(sposcar_file, mean_forces)
+
+    with open("out_atomic_positions","a") as file:
+        file.write("mean_forces: "+str(mean_forces.tolist())+"\n")
+        file.write("symm_forces: "+str(symm_forces.tolist())+"\n")
+
+    flat_forces = np.ravel(symm_forces)
+    flat_fcs = np.swapaxes(fcs,1,2).reshape((flat_forces.shape[0],flat_forces.shape[0]))
+    disp = sp.linalg.solve(-flat_fcs.T,flat_forces).reshape(-1,3)*0.1
+
+    #Resymmetrize displacement
+    symm_disp = symmetry.symmetrize_forces(sposcar_file, disp)
+    #Add threshold to avoid huge displacements
+    max_disp = np.amax(np.abs(symm_disp))
+    scale_disp=0.2
+
+    with open("out_atomic_positions","a") as file:
+        file.write("check correspondence:\n")
+        file.write(str(np.abs(symm_forces - calc_forces_energy(fcs, disp)[0]))+"\n")
+        file.write(str(np.abs(symm_forces - calc_forces_energy(fcs, symm_disp)[0]))+"\n")
+        file.write("max disp:"+str(max_disp)+"\n")
+
+    if (max_disp > 0.01):
+        symm_disp*=0.01/max_disp
+
+    return (-1)*scale_disp*np.ravel(symm_disp)

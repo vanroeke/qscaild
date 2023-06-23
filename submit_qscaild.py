@@ -43,9 +43,7 @@ def str2bool(v):
 if (not os.path.isfile("POTCAR")) or (not os.path.isfile("INCAR")) or (
         not os.path.isfile("POSCAR")) or (not os.path.isfile("SPOSCAR")):
     with open("finished", "w") as file:
-        file.write(
-            "finished: error\n"
-            "some file is missing: check POSCAR, SPOSCAR, POTCAR, INCAR")
+        file.write("finished: error\n")
     print("some file is missing: check POSCAR, SPOSCAR, POTCAR, INCAR")
     comm.Abort()
     sys.exit(1)
@@ -68,6 +66,8 @@ third = False
 use_pressure = "False"
 #Values of the pressure on the diagonal of the tensor
 pressure = np.array([0., 0., 0.])
+#If atomic positions are optimized
+optimize_positions = "False"
 #Whether small displacements are used
 use_smalldisp = False
 #Whether symmetries are computed
@@ -107,11 +107,11 @@ if rank == 0:
                 nconf = int(line.split("=")[1])
             if 'nfits' in line:
                 nfits = int(line.split("=")[1])
-            if 'n0' in line:
+            if 'n0 ' in line:
                 n0 = int(line.split("=")[1])
-            if 'n1' in line:
+            if 'n1 ' in line:
                 n1 = int(line.split("=")[1])
-            if 'n2' in line:
+            if 'n2 ' in line:
                 n2 = int(line.split("=")[1])
             if 'cutoff' in line:
                 cutoff = float(line.split("=")[1])
@@ -122,6 +122,8 @@ if rank == 0:
             if 'pressure_diag' in line:
                 p = line.split("=")[1].split(',')
                 pressure = np.array([float(p[0]), float(p[1]), float(p[2])])
+            if 'optimize_positions' in line:
+                optimize_positions = str2bool(line.split("=")[1].strip())
             if 'use_smalldisp' in line:
                 use_smalldisp = str2bool(line.split("=")[1])
             if 'calc_symm' in line:
@@ -160,7 +162,7 @@ if rank == 0:
     print("empirically enforce acoustic sum rule = " + str(enforce_acoustic))
     print("grid for the calculation of the phonon quantities = " + str(grid))
     print("mixing = " + str(mixing))
-
+    print("optimize positions = " + str(optimize_positions))
 T = comm.bcast(T, root=0)
 nconf = comm.bcast(nconf, root=0)
 nfits = comm.bcast(nfits, root=0)
@@ -171,6 +173,7 @@ cutoff = comm.bcast(cutoff, root=0)
 third = comm.bcast(third, root=0)
 use_pressure = comm.bcast(use_pressure, root=0)
 pressure = comm.bcast(pressure, root=0)
+optimize_positions = comm.bcast(optimize_positions, root=0)
 use_smalldisp = comm.bcast(use_smalldisp, root=0)
 calc_symm = comm.bcast(calc_symm, root=0)
 symm_acoustic = comm.bcast(symm_acoustic, root=0)
@@ -186,9 +189,7 @@ n = [n0, n1, n2]
 
 if (not os.path.isfile("FORCE_CONSTANTS")) and (not use_smalldisp):
     with open("finished", "w") as file:
-        file.write(
-            "finished: error\n"
-            "some file is missing: check FORCE_CONSTANTS")
+        file.write("finished: error\n")
     print("some file is missing: check FORCE_CONSTANTS")
     comm.Abort()
     sys.exit(1)
@@ -197,6 +198,6 @@ os.sync()
 comm.Barrier()
 
 actions.fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
-                            pressure, use_smalldisp, calc_symm, symm_acoustic,
+                            pressure, optimize_positions, use_smalldisp, calc_symm, symm_acoustic,
                             imaginary_freq, enforce_acoustic, grid, tolerance,
                             pdiff, memory, mixing)
