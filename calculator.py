@@ -7,6 +7,7 @@ import mlip2vasp as mlv
 import os
 from calculator_config import mlip_exe, vasp_exe, mlip_env, vasp_env, mpirun, qscaild_path
 import sys
+import shutil
 
 # If the environment variables are not defined in the config, use currently environment
 if not mlip_env:
