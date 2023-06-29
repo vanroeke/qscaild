@@ -201,3 +201,4 @@ actions.fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                             pressure, optimize_positions, use_smalldisp, calc_symm, symm_acoustic,
                             imaginary_freq, enforce_acoustic, grid, tolerance,
                             pdiff, memory, mixing)
+sys.exit(0)

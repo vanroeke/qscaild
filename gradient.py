@@ -146,7 +146,7 @@ def read_vasp_stress(filename):
     for i in a.iter(tag="v"):
         nruter.append([float(j) for j in i.text.split()])
     nruter = np.array(nruter, dtype=np.double)
-    print("stress tensor: " + str(nruter.tolist()) + "\n")
+    #print("stress tensor: " + str(nruter.tolist()) + "\n")
     return nruter
 
 
@@ -790,6 +790,8 @@ def disp_optimize_positions_weights(fcs, sposcar_file, iteration_min, weights):
     np.savetxt('current_fcs.txt', flat_fcs)
     #Resymmetrize displacement
     symm_disp = symmetry.symmetrize_forces(sposcar_file, disp)
+    #Removing drift:
+    symm_disp=np.ravel(symm_disp.reshape(-1,3)-np.multiply(np.ones(symm_disp.reshape(-1,3).shape),np.mean(symm_disp.reshape(-1,3),axis=0)))
     #with open("out_atomic_positions","a") as file:
     #    file.write("non_symmetrized displacements:"+str(disp.tolist())+"\n")
     #    file.write("symmetrized displacements:"+str(symm_disp.tolist())+"\n")
@@ -804,6 +806,7 @@ def disp_optimize_positions_weights(fcs, sposcar_file, iteration_min, weights):
         file.write("max delta sym displacement:"+str(np.max(np.abs(symm_forces - calc_forces_energy(fcs, symm_disp)[0])))+"\n")
         file.write("max force:"+str(np.max(np.abs(symm_forces)))+"\n")
         file.write("max disp:"+str(max_disp)+"\n")
+        file.write("Removed drift:"+str(np.mean(symm_disp.reshape(-1,3),axis=0)))
 
     if (max_disp > 0.01):
         symm_disp*=0.01/max_disp

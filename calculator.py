@@ -20,7 +20,7 @@ threshold=3.0
 
 def qscaild():
     print('Running QSCAILD iteration')
-    subprocess.run([mpirun,"python", os.path.join(qscaild_path,"submit_qscaild.py")],stdout=sys.stdout, stderr=sys.stderr)
+    subprocess.run([mpirun,"python", os.path.join(qscaild_path,"submit_qscaild.py")],stdout=sys.stdout, stderr=sys.stderr,check=True)
     return
  
 def vasprun(directory):
