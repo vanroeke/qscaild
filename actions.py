@@ -67,7 +67,8 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
     """
     Main function that monitors the self-consistency loop.
     """
-
+    if rank==0:
+        tic=time.perf_counter()
     iteration = 0
     write_gruneisen = False
 
@@ -173,12 +174,19 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
     M=rcv_buf_M
     os.sync()
     comm.Barrier()
-
+    if rank==0:
+        toc=time.perf_counter()
+        print(f"Symmetry related parts calculated in {toc - tic:0.4f} seconds")
+        tic=time.perf_counter()
 
     if third: # Parallel computation of third order forces
         if rank==0:    
+            print("Calculating 3rd order part")
             x_data, y_data, weights,sposcar,config = gradient.prep_prepare_fit_3rd_weights(
                 mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acoustic, iteration_min)
+            toc=time.perf_counter()
+            print(f"Weight of previous configs calculated in {toc - tic:0.4f} seconds")
+            tic=time.perf_counter()
             #function arguments for third order FCs
             args=[enforce_acoustic,
                             iteration_min,sposcar,config]
@@ -216,8 +224,12 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
         
     else:
         if rank==0:
-            x_data, y_data, weights = gradient.prepare_fit_weights(
-                    mat_rec_ac, enforce_acoustic, iteration_min)
+            x_data, y_data, weights = gradient.prepare_fit_weights(mat_rec_ac, enforce_acoustic, iteration_min)
+
+    if rank==0:
+        toc=time.perf_counter()
+        print(f"Preparation of forces in {toc - tic:0.4f} seconds")
+        tic=time.perf_counter()
 
     if rank==0:   
         clf = linear_model.LinearRegression(fit_intercept=False, n_jobs=-1)
@@ -269,6 +281,10 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
 
     os.sync()
     comm.Barrier()
+    if rank==0:
+        toc=time.perf_counter()
+        print(f"Fitting forces in {toc - tic:0.4f} seconds")
+        tic=time.perf_counter()
 
     #Compute external pressure and updates lattice parameter if necessary
     if use_pressure in ['cubic', 'tetragonal', 'orthorhombic','fixab']:
@@ -358,12 +374,14 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                 for iatom in range(len(corresp)):
                     for direction in range(3):
                         folded_disp[corresp[iatom][0]*3+direction] = disp[iatom*3+direction]
+                drift=np.sum(folded_disp)
 
                 with open("out_atomic_positions", 'a') as file:
                     file.write("iteration: " + str(iteration) + "\n")
                     file.write("displacement in nm: " + str(disp.tolist()) + "\n")
                     file.write("folded displacement in nm: "
                                 + str(folded_disp.tolist()) + "\n")
+                    #file.write("total drift: " + str(drift.tolist()) + "\n")
 
                 sposcar_current = generate_conf.distort_POSCAR(sposcar_current, disp)
                 poscar_current = generate_conf.distort_POSCAR(poscar_current, folded_disp)
@@ -388,6 +406,10 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
     os.sync()
     iteration = comm.bcast(iteration, root=0)
     comm.Barrier()
+    if rank==0:
+        toc=time.perf_counter()
+        print(f"Structural optimization  in {toc - tic:0.4f} seconds")
+        tic=time.perf_counter()
 
     if iteration >= nfits:
         if rank == 0:
@@ -415,7 +437,13 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
     if rank == 0:
         with open("iteration", "w") as f:
             f.write(str(iteration) + "\n")
-    return calc_dirs
+    os.sync()
+    if rank==0:
+        toc=time.perf_counter()
+        print(f"Renew configurations  in {toc - tic:0.4f} seconds")
+        tic=time.perf_counter()
+    
+    return 
 
 
 def renew_configurations(nconf, T, n, iteration, poscar_file, sposcar_file,
@@ -436,7 +464,7 @@ def renew_configurations(nconf, T, n, iteration, poscar_file, sposcar_file,
             for r in dirs:
                 file.write(r + "\n")
 
-    return dirs
+    return
 
 
 def test_convergence(iteration, tolerance):

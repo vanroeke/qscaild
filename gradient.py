@@ -517,7 +517,6 @@ def prepare_fit_3rd(mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acoustic,
     conn.commit()
     conn.close()
 
-    print("start preparing 3rd order part")
     xdata_3rd = np.empty((range(len(mat_rec_ac_3rd.shape[0]))))
     natoms = len(json.loads(config[0][1])) // 3
     for k in range(mat_rec_ac_3rd.shape[0]):
@@ -572,7 +571,6 @@ def prep_prepare_fit_3rd_weights(mat_rec_ac, mat_rec_ac_3rd, M, N, enforce_acous
 def parallel_loop(k, mat_rec_ac_3rd, M, N, enforce_acoustic,
                             iteration_min,sposcar,config):
 
-    print("start preparing 3rd order part")
     #for k in range(mat_rec_ac_3rd.shape[0]):
     print("preparing data number " + str(k) + " of "+  str(len(range(mat_rec_ac_3rd.shape[0]))))
     fcs_3rd_full = mat_rec_ac_3rd[k]
@@ -769,6 +767,8 @@ def disp_optimize_positions_weights(fcs, sposcar_file, iteration_min, weights):
 
     conn.commit()
     conn.close()
+    
+    sym_force_prec = 1e-2
 
     forces = np.array([json.loads(c[2]) for c in config])
 
@@ -779,27 +779,39 @@ def disp_optimize_positions_weights(fcs, sposcar_file, iteration_min, weights):
 
     symm_forces = symmetry.symmetrize_forces(sposcar_file, mean_forces)
 
-    with open("out_atomic_positions","a") as file:
-        file.write("mean_forces: "+str(mean_forces.tolist())+"\n")
-        file.write("symm_forces: "+str(symm_forces.tolist())+"\n")
+    #with open("out_atomic_positions","a") as file:
+    #    file.write("mean_forces: "+str(mean_forces.tolist())+"\n")
+    #    file.write("symm_forces: "+str(symm_forces.tolist())+"\n")
 
     flat_forces = np.ravel(symm_forces)
     flat_fcs = np.swapaxes(fcs,1,2).reshape((flat_forces.shape[0],flat_forces.shape[0]))
     disp = sp.linalg.solve(-flat_fcs.T,flat_forces).reshape(-1,3)*0.1
-
+    np.savetxt('current_forces.txt', flat_forces)
+    np.savetxt('current_fcs.txt', flat_fcs)
     #Resymmetrize displacement
     symm_disp = symmetry.symmetrize_forces(sposcar_file, disp)
+    #with open("out_atomic_positions","a") as file:
+    #    file.write("non_symmetrized displacements:"+str(disp.tolist())+"\n")
+    #    file.write("symmetrized displacements:"+str(symm_disp.tolist())+"\n")
+    
     #Add threshold to avoid huge displacements
     max_disp = np.amax(np.abs(symm_disp))
     scale_disp=0.2
 
     with open("out_atomic_positions","a") as file:
         file.write("check correspondence:\n")
-        file.write(str(np.abs(symm_forces - calc_forces_energy(fcs, disp)[0]))+"\n")
-        file.write(str(np.abs(symm_forces - calc_forces_energy(fcs, symm_disp)[0]))+"\n")
+        file.write("max harmonic forces:"+str(np.max(np.abs(symm_forces - calc_forces_energy(fcs, disp)[0])))+"\n")
+        file.write("max delta sym displacement:"+str(np.max(np.abs(symm_forces - calc_forces_energy(fcs, symm_disp)[0])))+"\n")
+        file.write("max force:"+str(np.max(np.abs(symm_forces)))+"\n")
         file.write("max disp:"+str(max_disp)+"\n")
 
     if (max_disp > 0.01):
         symm_disp*=0.01/max_disp
+    if np.max(np.abs(symm_forces)) < sym_force_prec:
+        print("Max force lower than threshold, skipping ionic optimization")
+        symm_disp*=0
+    if max_disp > 5.:
+        print("Max disp unrealistically large -> FCs not converged enough, skipping ionic optimization")
+        symm_disp*=0
 
     return (-1)*scale_disp*np.ravel(symm_disp)
