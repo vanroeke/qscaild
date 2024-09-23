@@ -168,14 +168,14 @@ def generate(nconfig, iteration, poscar_file, sposcar_file, fcs_file, T, n,
             absmean += sum(abs(displacements[isample, :])) / len(
                 displacements[isample, :])
             absmean_full += abs(displacements[isample, :])
-            cur.execute(
+            cur.execute(        
                 "INSERT INTO configurations VALUES "
-                "(?,?,?,?,?,null,null,null,null)",
-                (isample + already_calc + 1, iteration,
+                "(?,?,?,?,?,null,null,null,null,null,null)",
+                (isample + already_calc + 1, 
+                 iteration,
                  json.dumps(displacements[isample, :].tolist()),
                  distr.logpdf(displacements[isample, :]),
                  distr.logpdf(displacements[isample, :])))
-
             newposcar = distort_POSCAR(sposcar, displacements[isample, :])
             filename = "SPOSCAR.config.{0}".format(isample + already_calc + 1)
             write_POSCAR(newposcar, filename)

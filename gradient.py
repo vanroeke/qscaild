@@ -156,18 +156,16 @@ def calc_mean_stress(iteration_min):
     """
     conn = sqlite3.connect("QSCAILD.db")
     cur = conn.cursor()
-    cur.execute("""SELECT id FROM configurations WHERE iteration >=?""",
+    cur.execute("""SELECT id, stress FROM configurations WHERE iteration >=?""",
                 (iteration_min, ))
     config = cur.fetchall()
     conn.commit()
     stress = []
     for c in config:
-        filename = os.path.join("config-" + str(c[0]), "vasprun.xml")
-        if not _check_file(filename):
-            print("problem with file " + filename + ", remove configuration")
-            cur.execute("""DELETE FROM configurations WHERE id=?""", (c[0], ))
-        print("read " + filename)
-        stress.append(read_vasp_stress(filename))
+        if c[1] == '':
+            print("problem with config-" + str(c[0]))
+        print("read stress of config-" + str(c[0]) + " from QSCAILD.db")
+        stress.append(np.array(json.loads(c[1])))
     conn.close()
     return np.mean(np.array(stress), axis=0)
 
@@ -178,18 +176,16 @@ def calc_mean_stress_weights(iteration_min, weights):
     """
     conn = sqlite3.connect("QSCAILD.db")
     cur = conn.cursor()
-    cur.execute("""SELECT id FROM configurations WHERE iteration >=?""",
+    cur.execute("""SELECT id, stress FROM configurations WHERE iteration >=?""",
                 (iteration_min, ))
     config = cur.fetchall()
     conn.commit()
     stress = []
     for c in config:
-        filename = os.path.join("config-" + str(c[0]), "vasprun.xml")
-        if not _check_file(filename):
-            print("problem with file " + filename + ", remove configuration")
-            cur.execute("""DELETE FROM configurations WHERE id=?""", (c[0], ))
-        print("read " + filename)
-        stress.append(read_vasp_stress(filename))
+        if c[1] == '':
+            print("problem with config-" + str(c[0]))
+        print("read stress of config-" + str(c[0]) + " from QSCAILD.db")
+        stress.append(np.array(json.loads(c[1])))
     conn.close()
     newweights = weights.reshape((len(config), -1))[:, 0]
     nruter = np.sum(
@@ -262,9 +258,9 @@ def read_vasp_eigenvalues(filename):
     return nruter, occupied[-3:], empty[:3]
 
 
-def store_vasp_forces_energy(iteration):
+def store_vasp_forces_energy_stress_lattice(iteration):
     """
-    Store forces and energy from VASP for all configurations
+    Store forces, energy and stress from VASP for all configurations
     """
     conn = sqlite3.connect("QSCAILD.db")
     cur = conn.cursor()
@@ -274,7 +270,7 @@ def store_vasp_forces_energy(iteration):
     config = cur.fetchall()
     conn.commit()
 
-    vasp_forces_energy = []
+    vasp_forces_energy_stress_lattice = []
     for c in config:
         filename = os.path.join("config-" + str(c[0]), "vasprun.xml")
         if not _check_file(filename):
@@ -284,13 +280,16 @@ def store_vasp_forces_energy(iteration):
             print("read " + filename)
             forces = json.dumps(read_vasp_forces(filename).tolist())
             energy = read_vasp_energy(filename)
-            vasp_forces_energy.append([forces, energy])
+            stress = json.dumps(read_vasp_stress(filename).tolist())
+            lattice = json.dumps(generate_conf.read_POSCAR('POSCAR_' + str(iteration))['lattvec'].tolist())
+            vasp_forces_energy_stress_lattice.append([forces, energy, stress, lattice])
             cur.execute(
-                """UPDATE configurations SET forces=?, energy=? WHERE id=?""",
-                (forces, energy, c[0]))
+                """UPDATE configurations SET forces=?, energy=?, stress=?, lattice=? WHERE id=?""",
+                (forces, energy, stress, lattice, c[0]))
     conn.commit()
     conn.close()
-    return np.array(vasp_forces_energy)
+    print('Everything read')
+    return np.array(vasp_forces_energy_stress_lattice)
 
 
 def calc_3rd_forces(fcs_3rd_1cell, M, N, displacements):
@@ -481,7 +480,7 @@ def prepare_fit_weights(mat_rec_ac, enforce_acoustic, iteration_min):
 #   remove mean force where it is not zero by symmetry
     if os.path.isfile("POSCAR_PARAM") and os.path.isfile("SPOSCAR_PARAM"):
         sposcar_param=generate_conf.read_POSCAR("SPOSCAR_PARAM")
-        cartesian_positions=np.ravel(sp.dot(sposcar_param["lattvec"],sposcar_param["positions"]).T*10.)
+        cartesian_positions=np.ravel(np.dot(sposcar_param["lattvec"],sposcar_param["positions"]).T*10.)
         mean_forces = np.sum(ydata*weights,axis=0)/np.sum(weights,axis=0)
         delta_Ep = np.mean(mean_forces*cartesian_positions)
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -712,7 +711,7 @@ def calc_delta_Ep(fcs, sposcar_param, iteration_min):
     forces = np.array([json.loads(c[2]) for c in config])
     print("forces: " + str(forces.tolist()))
 
-    cartesian_positions = sp.dot(sposcar_param["lattvec"],
+    cartesian_positions = np.dot(sposcar_param["lattvec"],
                                  sposcar_param["positions"]).T * 10.
     delta_Ep = np.mean(-np.mean(forces, axis=0) * cartesian_positions)
     print("delta Ep: " + str(delta_Ep))
@@ -745,7 +744,7 @@ def calc_delta_Ep_weights(fcs, sposcar_param, iteration_min, weights):
         forces * newweights[:, np.newaxis, np.newaxis],
         axis=0) / np.sum(newweights)
 
-    cartesian_positions = sp.dot(sposcar_param["lattvec"],
+    cartesian_positions = np.dot(sposcar_param["lattvec"],
                                  sposcar_param["positions"]).T * 10.
     delta_Ep = np.mean(-mean_forces * cartesian_positions)
     print("delta Ep: " + str(delta_Ep))

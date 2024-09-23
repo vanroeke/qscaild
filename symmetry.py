@@ -305,8 +305,8 @@ def calc_corresp(poscar, sposcar, n):
     Calculates the correspondence between the atoms in a POSCAR and in an
     SPOSCAR file.
     """
-    poscar_positions = sp.dot(poscar["lattvec"], poscar["positions"])
-    sposcar_positions = sp.dot(sposcar["lattvec"], sposcar["positions"])
+    poscar_positions = np.dot(poscar["lattvec"], poscar["positions"])
+    sposcar_positions = np.dot(sposcar["lattvec"], sposcar["positions"])
     corresp = []
     for iatom in range(sposcar["numbers"].sum()):
         for na in range(n[0]):
@@ -314,7 +314,7 @@ def calc_corresp(poscar, sposcar, n):
                 for nc in range(n[2]):
                     for jatom in range(poscar["numbers"].sum()):
                         if np.allclose(
-                                sposcar_positions[:, iatom] - sp.dot(
+                                sposcar_positions[:, iatom] - np.dot(
                                     poscar["lattvec"], [na, nb, nc]),
                                 poscar_positions[:, jatom]):
                             corresp.append([jatom, na, nb, nc])

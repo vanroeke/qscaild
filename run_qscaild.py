@@ -77,11 +77,18 @@ print("MLIP potential =" + MLIP_potential)
 
 #Gather data from previously calculated DFT configs and train potential, then continue with active learning
 if MLIP_mode == "train":
-    print("Gathering training data from all configs, then train new potential and continue with active learning")
-    for i in [ d for d in os.listdir() if "config" in d ]:
-        calculator.add_to_train(i,MLIP_train_set)
+    #print("Gathering training data from all configs, then train new potential and continue with active learning")
+    #for i in [ d for d in os.listdir() if "config" in d ]:
+     #   calculator.add_to_train(i,MLIP_train_set)
     calculator.train(MLIP_train_set, MLIP_potential)
     MLIP_mode="active_learning"
+
+ #Add to training set only
+if MLIP_mode == 'gather_confs':
+    for i in [ d for d in os.listdir() if "config" in d ]:
+        calculator.add_to_train(i,MLIP_train_set)
+
+
 
 while not os.path.isfile('finished'):
     
@@ -93,8 +100,6 @@ while not os.path.isfile('finished'):
         while line:
             calc_dirs.append(line.strip())
             line=f.readline()
-    print(str(MLIP_mode), "off")
-    print(MLIP_mode == "off")
 
     #DFT only mode
     if str(MLIP_mode) == "off":

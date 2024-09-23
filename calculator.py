@@ -5,7 +5,7 @@
 import subprocess
 import mlip2vasp as mlv
 import os
-from calculator_config import mlip_exe, vasp_exe, mlip_env, vasp_env, mpirun, qscaild_path
+from calculator_config import mlip_exe, vasp_exe, mlip_env, vasp_env, mpirun, qscaild_path,python_exe
 import sys
 import shutil
 
@@ -17,14 +17,14 @@ if not vasp_env:
 
 threshold=3.0
 
-
+print(os.environ.get("$OAR_NODE_FILE"))
 def qscaild():
     print('Running QSCAILD iteration')
-    subprocess.run([mpirun,"python", os.path.join(qscaild_path,"submit_qscaild.py")],stdout=sys.stdout, stderr=sys.stderr,check=True)
+    subprocess.run([mpirun]+["-f" ,os.environ.get("OAR_NODE_FILE"), "-bootstrap-exec", "/usr/bin/oarsh",python_exe, os.path.join(qscaild_path,"submit_qscaild.py")],stdout=sys.stdout, stderr=sys.stderr,check=True)
     return
  
 def vasprun(directory):
-    subprocess.run([mpirun,vasp_exe], cwd=directory ,shell=False, env=vasp_env, stdout=sys.stdout, stderr=sys.stderr)
+    subprocess.run([mpirun]+["-f" ,os.environ.get("OAR_NODE_FILE"), "-bootstrap-exec", "/usr/bin/oarsh",vasp_exe], cwd=directory ,shell=False, env=vasp_env, stdout=sys.stdout, stderr=sys.stderr)
     return
 
 def grade(directory,MLIP_train_set, MLIP_potential):
@@ -42,7 +42,7 @@ def grade(directory,MLIP_train_set, MLIP_potential):
  
 def train(MLIP_train_set, MLIP_potential):
     print('Training potential')
-    subprocess.run([mpirun, mlip_exe, "train", MLIP_potential, MLIP_train_set, "--force-weight=1.0", "--energy-weight=0.1", "--stress-weight=1.0", "--update-mindist", "--max-iter=2000"], env=mlip_env,stdout=sys.stdout, stderr=sys.stderr)
+    subprocess.run([mpirun, "-f" ,os.environ.get("OAR_NODE_FILE"), "-bootstrap-exec", "/usr/bin/oarsh", mlip_exe, "train", MLIP_potential, MLIP_train_set, "--force-weight=1.0", "--energy-weight=0.1", "--stress-weight=1.0", "--update-mindist", "--max-iter=2000"], env=mlip_env,stdout=sys.stdout, stderr=sys.stderr)
     shutil.copy('Trained.mtp_', MLIP_potential)
     return
 

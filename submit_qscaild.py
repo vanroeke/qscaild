@@ -35,7 +35,6 @@ from mpi4py import MPI
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
-
 def str2bool(v):
     return v.lower().strip() in ("yes", "true", "t", "1")
 
@@ -92,10 +91,14 @@ tolerance = 1e-2
 # in the stress tensor in kbar)
 pdiff = 1.0
 # Memory factor to accumulate configurations: all configurations starting from
-# floor(iteration*(1.0-memory)) are taken into account in the fit
+# floor(iteration*(1.0-memory)) are taken into account in the fit 
+# if memory is set to 0, only the configuration with the same lattice parameter
+# will be taken into account
 memory = 0.3
 # Mixing between fcs in differents iterations
 mixing = 0.
+# Accepted change between the iteration on the lattice param
+lattice_treshold = 0.005
 
 # Read input file
 if rank == 0:
@@ -144,6 +147,8 @@ if rank == 0:
                 mixing = float(line.split("=")[1])
             if 'grid' in line:
                 grid = int(line.split("=")[1])
+            if 'lattice_treshold' in line:
+                lattice_treshold = float(line.split("=")[1])
     print("T = " + str(T) + " K")
     print("nconf = " + str(nconf))
     print("nfits = " + str(nfits))
@@ -163,6 +168,7 @@ if rank == 0:
     print("grid for the calculation of the phonon quantities = " + str(grid))
     print("mixing = " + str(mixing))
     print("optimize positions = " + str(optimize_positions))
+    print("lattice_treshold = " + str(lattice_treshold))
 T = comm.bcast(T, root=0)
 nconf = comm.bcast(nconf, root=0)
 nfits = comm.bcast(nfits, root=0)
@@ -184,6 +190,7 @@ memory = comm.bcast(memory, root=0)
 enforce_acoustic = comm.bcast(enforce_acoustic, root=0)
 grid = comm.bcast(grid, root=0)
 mixing = comm.bcast(mixing, root=0)
+lattice_treshold = comm.bcast(lattice_treshold, root=0)
 
 n = [n0, n1, n2]
 
@@ -200,5 +207,5 @@ comm.Barrier()
 actions.fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                             pressure, optimize_positions, use_smalldisp, calc_symm, symm_acoustic,
                             imaginary_freq, enforce_acoustic, grid, tolerance,
-                            pdiff, memory, mixing)
+                            pdiff, memory, mixing, lattice_treshold)
 sys.exit(0)

@@ -151,14 +151,14 @@ def write_mode_gruneisen(poscar_file, n, fcs_file, fcs_3rd_file,
     fcs_3rd, atom_info, R_j, R_k, abc = read_3rd_fcs_asinfile(
         fcs_3rd_file, poscar_file)
     nblocks = len(fcs_3rd)
-    poscar_positions = sp.dot(poscar["lattvec"], poscar["positions"]).T * 10.
+    poscar_positions = np.dot(poscar["lattvec"], poscar["positions"]).T * 10.
     cartesian_positions = np.array([
-        sp.dot(poscar["lattvec"], R_k[iblock])[abc[iblock, 2]] * 10. +
+        np.dot(poscar["lattvec"], R_k[iblock])[abc[iblock, 2]] * 10. +
         poscar_positions[atom_info[iblock, 2], abc[iblock, 2]]
         for iblock in range(nblocks)
     ])
 
-    structure = phonopy.interface.calculator.read_crystal_structure(poscar_file,
+    structure = phonopy.interface.read_crystal_structure(poscar_file,
                                                          "vasp")[0]
     fc = phonopy.file_IO.parse_FORCE_CONSTANTS(fcs_file)
 
@@ -300,14 +300,14 @@ def write_mode_gruneisen_gamma(poscar_file, sposcar_file, n, fcs_file,
     fcs_3rd, atom_info, R_j, R_k, abc = read_3rd_fcs_asinfile(
         fcs_3rd_file, poscar_file)
     nblocks = len(fcs_3rd)
-    poscar_positions = sp.dot(poscar["lattvec"], poscar["positions"]).T * 10.
+    poscar_positions = np.dot(poscar["lattvec"], poscar["positions"]).T * 10.
     cartesian_positions = np.array([
-        sp.dot(poscar["lattvec"], R_k[iblock])[abc[iblock, 2]] * 10. +
+        np.dot(poscar["lattvec"], R_k[iblock])[abc[iblock, 2]] * 10. +
         poscar_positions[atom_info[iblock, 2], abc[iblock, 2]]
         for iblock in range(nblocks)
     ])
 
-    structure = phonopy.interface.calculator.read_crystal_structure(sposcar_file,
+    structure = phonopy.interface.read_crystal_structure(sposcar_file,
                                                          "vasp")[0]
     fc = phonopy.file_IO.parse_FORCE_CONSTANTS(fcs_file)
 

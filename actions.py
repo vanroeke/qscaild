@@ -63,7 +63,7 @@ size = comm.Get_size()
 def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                         pressure, optimize_positions, use_smalldisp, calc_symm, symm_acoustic,
                         imaginary_freq, enforce_acoustic, grid, tolerance,
-                        pdiff, memory, mixing):
+                        pdiff, memory, mixing, lattice_treshold):
     """
     Main function that monitors the self-consistency loop.
     """
@@ -92,7 +92,7 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                     "CREATE TABLE configurations (id integer, iteration"
                     " integer, displacements text, probability real,"
                     " current_proba real, forces text, energy real,"
-                    " har_forces text, har_energy real)")
+                    " har_forces text, har_energy real, stress real, lattice real)")
                 conn.commit()
                 conn.close()
                 if calc_symm:
@@ -122,9 +122,35 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
             file.write("iteration: " + str(iteration) + "\n")
         with open("out_fit", 'a') as file:
             file.write("iteration: " + str(iteration) + "\n")
-        gradient.store_vasp_forces_energy(iteration)
+        datas = gradient.store_vasp_forces_energy_stress_lattice(iteration)
 
-        iteration_min = int(math.floor(iteration * (1.0 - memory)))
+        if memory == 0:
+            
+            conn = sqlite3.connect("QSCAILD.db")
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT iteration, lattice"
+                " FROM configurations"
+                " WHERE abs(json_extract(lattice, '$[0][0]') - ?) * 10 <= ?"
+                " and abs(json_extract(lattice, '$[1][1]') - ?) * 10 <= ?"
+                " and abs(json_extract(lattice, '$[2][2]') - ?) * 10 <= ?", 
+                (json.loads(datas[-1][3])[0][0], lattice_treshold, json.loads(datas[-1][3])[1][1], lattice_treshold, json.loads(datas[-1][3])[2][2], lattice_treshold, ))
+            config = cur.fetchall()
+            conn.commit()
+            conn.close()
+            iteration_min = config[0][0]
+
+            if abs(int(iteration_min) - int(iteration)) >= 5:
+                iteration_min = iteration - 5
+    
+        else:
+
+            iteration_min = int(math.floor(iteration * (1.0 - memory))) 
+        
+        print('Iterations taken into account are:', end=" ")
+        for i in range(iteration_min, iteration+1):
+            print(str(i), end=" ")    
+        print("")
         if os.path.isfile("FORCE_CONSTANTS_CURRENT"):
             shutil.copy("FORCE_CONSTANTS_CURRENT", "FORCE_CONSTANTS_PREVIOUS")
 
@@ -316,11 +342,16 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                 gruneisen.write_weighted_gruneisen(
                     f_grun, m_grun, [Ti * 100. for Ti in range(1, 16)],
                     "weighted_gruneisen")
-
+            tic2=time.perf_counter()
             potential_pressure = np.diag(
                 gradient.calc_mean_stress_weights(iteration_min, weights))
+            toc2=time.perf_counter()
+            print(f"Potential pressure  in {toc2 - tic2:0.4f} seconds")
+            tic2=time.perf_counter()
             kinetic_pressure = gradient.calc_kinetic_term(
                 iteration_min, weights)
+            toc2=time.perf_counter()
+            print(f"Kinetic pressure  in {toc2 - tic2:0.4f} seconds")
             mean_pressure = potential_pressure + kinetic_pressure
 
             for i in range(3):
@@ -388,7 +419,7 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
 
             generate_conf.write_POSCAR(poscar_current, "POSCAR_CURRENT")
             generate_conf.write_POSCAR(sposcar_current, "SPOSCAR_CURRENT")
-            if use_pressure in ['cubic', 'tetragonal', 'orthorombic']:
+            if use_pressure in ['cubic', 'tetragonal', 'orthorhombic']:
                 with open("out_volume", 'a') as file:
                     file.write("iteration: " + str(iteration) + "\n")
                     file.write("kinetic pressure: " +
@@ -418,7 +449,7 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
         return
 
     if test_convergence(iteration, tolerance):
-        if not use_pressure in ['cubic', 'tetragonal', 'orthorombic']:
+        if not use_pressure in ['cubic', 'tetragonal', 'orthorhombic']:
             if rank == 0:
                 with open("finished", "w") as file:
                     file.write("finished: obtained convergence\n")
