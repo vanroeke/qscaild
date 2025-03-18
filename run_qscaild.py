@@ -44,8 +44,9 @@ import calculator
 import mlip2vasp
 import time
 import numpy as np
-
-
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
 
 
 def str2bool(v):
@@ -77,24 +78,20 @@ print("MLIP potential =" + MLIP_potential)
 
 #Gather data from previously calculated DFT configs and train potential, then continue with active learning
 if MLIP_mode == "train":
-    #print("Gathering training data from all configs, then train new potential and continue with active learning")
-    #for i in [ d for d in os.listdir() if "config" in d ]:
-     #   calculator.add_to_train(i,MLIP_train_set)
+    print("Gathering training data from all configs, then train new potential and continue with active learning")
+    for i in [ d for d in os.listdir() if "config" in d ]:
+        calculator.add_to_train(i,MLIP_train_set)
     calculator.train(MLIP_train_set, MLIP_potential)
     MLIP_mode="active_learning"
 
- #Add to training set only
-if MLIP_mode == 'gather_confs':
-    for i in [ d for d in os.listdir() if "config" in d ]:
-        calculator.add_to_train(i,MLIP_train_set)
-
-
-
+print("test-2")
 while not os.path.isfile('finished'):
+    print("test-1.5")
     
     print("Running QSCAILD iteration")
     calculator.qscaild()
     calc_dirs=[]
+    print("test-1")
     with open('to_calc') as f:
         line=f.readline()
         while line:
@@ -109,9 +106,13 @@ while not os.path.isfile('finished'):
     
     #Using MLIP
     if MLIP_mode != "off":
+        print("test0")
         #create cfg files
         for dirs in calc_dirs:
             mlip2vasp.poscar2cfg(mlip2vasp.read_POSCAR(os.path.join(dirs,"POSCAR")),os.path.join(dirs,"config.cfg"))
+        os.sync()
+        comm.Barrier()
+        print("test1")
 
         #Active learning loop
         if MLIP_mode=="active_learning":
@@ -132,3 +133,6 @@ while not os.path.isfile('finished'):
                 print(i)
                 calculator.mlip(i,MLIP_potential)
 
+    print("test2")
+    os.sync()
+    comm.Barrier()

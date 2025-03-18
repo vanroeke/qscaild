@@ -84,18 +84,22 @@ def read_3rd_fcs_asinfile(fcs_file, poscar_file):
 
 
 def mode_gruneisen(f, psii, psij, massesi, massesj, cartesian_positions,
-                   fcs_3rd, factorj):
+                   fcs_3rd, factorj, abc):
     """
     Computes the value of the gruneisen parameter for a given mode
     """
 
-    sumijk = np.sum(
-        (fcs_3rd * cartesian_positions * factorj * psii * psij / np.sqrt(
-            massesi * massesj)).reshape(-1, 3),
-        axis=0)
-    mode_gruneisen = -(
-        sumijk * 1.e-24 * 1.e20 * 1.6e-19 / 2. / 4. / np.pi / np.pi / f / f /
-        codata.physical_constants["atomic mass constant"][0])
+    psieps = fcs_3rd * psii * psij * factorj / np.sqrt(massesi * massesj) 
+
+    sumijk00 = np.sum(psieps[abc[:,2]==0] * cartesian_positions[abc[:,2]==0])
+    sumijk11 = np.sum(psieps[abc[:,2]==1] * cartesian_positions[abc[:,2]==1])
+    sumijk22 = np.sum(psieps[abc[:,2]==2] * cartesian_positions[abc[:,2]==2])
+    sumijk01 = 0.5*np.sum(psieps[abc[:,2]==0] * cartesian_positions[abc[:,2]==1] + psieps[abc[:,2]==1] * cartesian_positions[abc[:,2]==0]) 
+    sumijk02 = 0.5*np.sum(psieps[abc[:,2]==0] * cartesian_positions[abc[:,2]==2] + psieps[abc[:,2]==2] * cartesian_positions[abc[:,2]==0]) 
+    sumijk12 = 0.5*np.sum(psieps[abc[:,2]==1] * cartesian_positions[abc[:,2]==2] + psieps[abc[:,2]==2] * cartesian_positions[abc[:,2]==1]) 
+
+    mode_gruneisen = np.array([sumijk00, sumijk11, sumijk22, sumijk01, sumijk02, sumijk12])
+    mode_gruneisen *= 1.e-24 * 1.e20 * 1.6e-19 / 2. / 4. / np.pi / np.pi / f / f / codata.physical_constants["atomic mass constant"][0]
     return mode_gruneisen
 
 
@@ -203,9 +207,19 @@ def write_mode_gruneisen(poscar_file, n, fcs_file, fcs_3rd_file,
 
     for qpt in qlist:
         q = mesh[qpt, :]
+        print("q:")
+        print(q)
         f, psi = phonon.get_frequencies_with_eigenvectors(q)
+        print("f:")
+        print(f)
+        print("psi:")
+        print(psi)
         factor = np.exp(2j * np.pi * np.dot(q, poscar["positions"]))
+        print("factor:")
+        print(factor)
         factorj = np.exp(2j * np.pi * np.dot(R_j, q))
+        print("factorj:")
+        print(factorj)
         for im in r:
             if (f[im] < -1.e-4):
                 print("ATTENTION: IMAGINARY FREQUENCIES ->"
@@ -227,11 +241,11 @@ def write_mode_gruneisen(poscar_file, n, fcs_file, fcs_3rd_file,
                 ])
                 m_gruni = mode_gruneisen(f[im], psii, psij, massesi, massesj,
                                          cartesian_positions, fcs_3rd,
-                                         factorj).real
+                                         factorj,abc).real
                 m_grun.append(m_gruni)
                 f_grun.append(f[im])
             else:
-                m_grun.append(np.array([0., 0., 0.]))
+                m_grun.append(np.array([0., 0., 0., 0., 0., 0.]))
                 f_grun.append(f[im])
     m_grun = np.array(m_grun)
     f_grun = np.array(f_grun)
@@ -247,7 +261,9 @@ def write_mode_gruneisen(poscar_file, n, fcs_file, fcs_3rd_file,
             for i in range(f_grun.shape[0]):
                 f.write(
                     str(f_grun[i]) + '  ' + str(m_grun[i][0]) + '  ' +
-                    str(m_grun[i][1]) + '  ' + str(m_grun[i][2]) + '\n')
+                    str(m_grun[i][1]) + '  ' + str(m_grun[i][2]) + '  ' +
+                    str(m_grun[i][3]) + '  ' + str(m_grun[i][4]) + '  ' +
+                    str(m_grun[i][5]) + '\n')
 
     m_grun = comm.bcast(m_grun, root=0)
     f_grun = comm.bcast(f_grun, root=0)
@@ -265,7 +281,7 @@ def write_weighted_gruneisen(f_grun, m_grun, Tlist, filename):
         for T, wgruni in w_grun:
             f.write(
                 str(T) + '  ' + str(wgruni[0]) + '  ' + str(wgruni[1]) + '  ' +
-                str(wgruni[2]) + '\n')
+                str(wgruni[2]) + '  ' + str(wgruni[3]) + '  ' + str(wgruni[4]) + '  ' + str(wgruni[5]) + '\n')
     return w_grun
 
 

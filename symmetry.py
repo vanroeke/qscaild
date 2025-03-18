@@ -45,6 +45,10 @@ import gradient
 import thirdorder_core
 import thirdorder_save
 import thirdorder_common
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+mpirank = comm.Get_rank()
+mpisize = comm.Get_size()
 
 
 def get_symmetry_information(sposcar_file):
@@ -126,8 +130,6 @@ def get_symmetry_information(sposcar_file):
     todo = tuplify(todo)
 
     with open('out_sym', 'a') as file:
-        file.write("2nd order todo list before acoustic sum rule: " +
-                   str(todo) + "\n")
         file.write("number of irreducible elements before acoustic sum rule: "
                    + str(len(todo)) + "\n")
     return [natoms, crotations, equivalences, kernels, irreducible, todo]
@@ -229,6 +231,19 @@ def reconstruct_fc_sparse(natoms, crotations, equivalences, kernels,
     return sp.sparse.csr_matrix(dataset)
 
 
+def generate_sum_rule(natoms, crotations, equivalences, kernels, irreducible,
+                      nirr, start, end):
+    for i in range(start,end):
+        phi = np.zeros(nirr)
+        phi[i] = 1.
+        sum_rulei = np.ravel(
+            np.sum(
+                reconstruct_fc(natoms, crotations, equivalences, kernels,
+                               irreducible, phi),
+                axis=1))
+        yield sum_rulei
+
+
 def acoustic_sum_rule(natoms, crotations, equivalences, kernels, irreducible,
                       todo):
     """
@@ -236,29 +251,83 @@ def acoustic_sum_rule(natoms, crotations, equivalences, kernels, irreducible,
     """
     print("calculate 2nd order acoustic sum")
     nirr = len(todo)
-    sum_rule = np.empty((natoms * 9, nirr))
-    for i in range(nirr):
-        print("element " + str(i))
-        phi = np.zeros(nirr)
-        phi[i] = 1.
-        sum_rule[:, i] = np.ravel(
-            np.sum(
-                reconstruct_fc(natoms, crotations, equivalences, kernels,
-                               irreducible, phi),
-                axis=1))
-    print("acoustic sum rule constraint begins")
-    print("calculate rank")
-    rank = np.linalg.matrix_rank(sum_rule)
-    print("rank: " + str(rank))
-    print("calculate kernel")
-    v = sp.linalg.svd(sum_rule)[2].T
-    kernel = v[:, rank - nirr:]
-    print("acoustic sum rule constraint finished")
-    with open('out_sym', 'a') as file:
-        file.write(
-            "2nd order number of irreducible elements after acoustic sum rule: "
-            + str(nirr - rank) + "\n")
+
+    # Divide the work among processes
+    # Calculate the base chunk size
+    base_chunk_size = nirr // mpisize
+    remainder = nirr % mpisize
+
+    # Calculate the start and end indices for each processor
+    start = mpirank * base_chunk_size + min(mpirank, remainder)
+    end = start + base_chunk_size + (1 if mpirank < remainder else 0)
+
+    sum_rule = np.empty((0, natoms * 9))
+
+    for sum_rulei in generate_sum_rule(natoms, crotations, equivalences, kernels, irreducible,
+                      nirr, start, end):
+        sum_rule = np.concatenate((sum_rule, sum_rulei[np.newaxis,:]),axis=0)
+
+    # Gather data from all processes
+    sum_rule_all = comm.gather(sum_rule, root=0)
+
+    if (mpirank == 0):
+        # Concatenate all gathered chunks
+        sum_rule = np.concatenate(sum_rule_all,axis=0).T
+
+        print("acoustic sum rule constraint begins")
+        print("calculate rank")
+        rank = np.linalg.matrix_rank(sum_rule)
+        print("rank: " + str(rank))
+        print("calculate kernel")
+        v = sp.linalg.svd(sum_rule)[2].T
+        kernel = v[:, rank - nirr:]
+        print("acoustic sum rule constraint finished")
+        with open('out_sym', 'a') as file:
+            file.write(
+                "2nd order number of irreducible elements after acoustic sum rule: "
+                + str(nirr - rank) + "\n")
+
+    else:
+        kernel = None
+        rank = None
+   
+    kernel = comm.bcast(kernel, root=0)
+    rank = comm.bcast(rank, root=0)
+
     return kernel, nirr - rank
+
+
+##OLD NON-PARALLEL VERSION
+#def acoustic_sum_rule(natoms, crotations, equivalences, kernels, irreducible,
+#                      todo):
+#    """
+#    Obtains the constraints imposed by the 2nd order acoustic sum rule.
+#    """
+#    print("calculate 2nd order acoustic sum")
+#    nirr = len(todo)
+#    sum_rule = np.empty((natoms * 9, nirr))
+#    for i in range(nirr):
+#        print("element " + str(i))
+#        phi = np.zeros(nirr)
+#        phi[i] = 1.
+#        sum_rule[:, i] = np.ravel(
+#            np.sum(
+#                reconstruct_fc(natoms, crotations, equivalences, kernels,
+#                               irreducible, phi),
+#                axis=1))
+#    print("acoustic sum rule constraint begins")
+#    print("calculate rank")
+#    rank = np.linalg.matrix_rank(sum_rule)
+#    print("rank: " + str(rank))
+#    print("calculate kernel")
+#    v = sp.linalg.svd(sum_rule)[2].T
+#    kernel = v[:, rank - nirr:]
+#    print("acoustic sum rule constraint finished")
+#    with open('out_sym', 'a') as file:
+#        file.write(
+#            "2nd order number of irreducible elements after acoustic sum rule: "
+#            + str(nirr - rank) + "\n")
+#    return kernel, nirr - rank
 
 
 def reconstruct_fc_acoustic(natoms,
@@ -321,50 +390,117 @@ def calc_corresp(poscar, sposcar, n):
     return corresp
 
 
-def calc_mat_rec_ac_3rd(poscar,
-                        sposcar,
-                        ker_ac_3rd,
-                        nirr_ac_3rd,
-                        wedge,
-                        list4,
-                        n3rdorder,
-                        enforce_acoustic=True):
+def generate_fcs_data(poscar, sposcar, ker_ac_3rd, nirr_ac_3rd, start, end, wedge, list4, n3rdorder, enforce_acoustic=True):
     """
-    Calculates the 3rd order symmetry matrix including the acoustic sum rule.
+    Generator function to yield fcs_3rd_1cell data incrementally.
     """
-    datanew = np.array([])
-    colinew = np.array([])
-    rowinew = np.array([])
     natoms = poscar["numbers"].sum()
     ncells = n3rdorder[0] * n3rdorder[1] * n3rdorder[2]
 
-    for k in range(nirr_ac_3rd):
-        print("preparing data number " + str(k))
+    for k in range(start, end):
         phi = np.zeros(nirr_ac_3rd)
         phi[k] = 1.
         fcs_3rd_1cell = sp.sparse.coo_matrix(
             np.ravel(
-                reconstruct_3rd_fcs(poscar, sposcar, ker_ac_3rd, phi, wedge,
-                                    list4, enforce_acoustic)))
+                reconstruct_3rd_fcs(poscar, sposcar, ker_ac_3rd, phi, wedge, list4, enforce_acoustic)))
         data = fcs_3rd_1cell.data
         rowi, coli = fcs_3rd_1cell.nonzero()
         fullindex = np.unravel_index(
             coli, (3, 3, 3, natoms, natoms * ncells, natoms * ncells))
-        coli = np.ravel_multi_index(
-            (fullindex[3], fullindex[0], fullindex[4], fullindex[1],
-             fullindex[5], fullindex[2]),
-            (natoms, 3, natoms * ncells, 3, natoms * ncells, 3))
-        print("fcs matrix has been calculated")
+        coli = np.ravel_multi_index((fullindex[3], fullindex[0], fullindex[4], fullindex[1],fullindex[5], fullindex[2]),(natoms, 3, natoms*ncells, 3, natoms*ncells, 3))
+        yield data, coli, np.array([k for nnz in range(len(coli))])
+
+
+def calc_mat_rec_ac_3rd(poscar, sposcar, ker_ac_3rd, nirr_ac_3rd, wedge, list4, n3rdorder, enforce_acoustic=True):
+    """
+    Calculates the 3rd order symmetry matrix including the acoustic sum rule.
+    """
+
+    # Divide the work among processes
+    # Calculate the base chunk size
+    base_chunk_size = nirr_ac_3rd // mpisize
+    remainder = nirr_ac_3rd % mpisize
+
+    # Calculate the start and end indices for each processor
+    start = mpirank * base_chunk_size + min(mpirank, remainder)
+    end = start + base_chunk_size + (1 if mpirank < remainder else 0)
+
+    datanew = np.array([])
+    colinew = np.array([])
+    rowinew = np.array([])
+
+    for data, coli, rowi in generate_fcs_data(poscar, sposcar, ker_ac_3rd, nirr_ac_3rd, start, end, wedge, list4, n3rdorder, enforce_acoustic):
         datanew = np.concatenate((datanew, data))
         colinew = np.concatenate((colinew, coli))
-        rowinew = np.concatenate((rowinew,
-                                  np.array([k for nnz in range(len(coli))])))
+        rowinew = np.concatenate((rowinew, rowi))
 
-    mat_rec_ac_3rd = sp.sparse.coo_matrix(
-        (datanew, (rowinew, colinew)),
-        shape=(nirr_ac_3rd,
-               natoms * natoms * natoms * ncells * ncells * 27)).tocsr()
-    return mat_rec_ac_3rd
+    # Gather data from all processes
+    datanew_all = comm.gather(datanew, root=0)
+    colinew_all = comm.gather(colinew, root=0)
+    rowinew_all = comm.gather(rowinew, root=0)
+
+    if (mpirank == 0):
+        # Concatenate all gathered chunks
+        datanew = np.concatenate(datanew_all)
+        colinew = np.concatenate(colinew_all)
+        rowinew = np.concatenate(rowinew_all)
+
+        natoms = poscar["numbers"].sum()
+        ncells = n3rdorder[0] * n3rdorder[1] * n3rdorder[2]
+        mat_rec_ac_3rd = sp.sparse.coo_matrix(
+            (datanew, (rowinew, colinew)),
+            shape=(nirr_ac_3rd,
+                   natoms * natoms * natoms * ncells * ncells * 27)).tocsr()
+        return mat_rec_ac_3rd
+    else:
+        return None
+
+
+##OLD NON-PARALLEL FUNCTION
+#def calc_mat_rec_ac_3rd(poscar,
+#                        sposcar,
+#                        ker_ac_3rd,
+#                        nirr_ac_3rd,
+#                        wedge,
+#                        list4,
+#                        n3rdorder,
+#                        enforce_acoustic=True):
+#    """
+#    Calculates the 3rd order symmetry matrix including the acoustic sum rule.
+#    """
+#    datanew = np.array([])
+#    colinew = np.array([])
+#    rowinew = np.array([])
+#    natoms = poscar["numbers"].sum()
+#    ncells = n3rdorder[0] * n3rdorder[1] * n3rdorder[2]
+#
+#    for k in range(nirr_ac_3rd):
+#        print("preparing data number " + str(k))
+#        phi = np.zeros(nirr_ac_3rd)
+#        phi[k] = 1.
+#        fcs_3rd_1cell = sp.sparse.coo_matrix(
+#            np.ravel(
+#                reconstruct_3rd_fcs(poscar, sposcar, ker_ac_3rd, phi, wedge,
+#                                    list4, enforce_acoustic)))
+#        data = fcs_3rd_1cell.data
+#        rowi, coli = fcs_3rd_1cell.nonzero()
+#        fullindex = np.unravel_index(
+#            coli, (3, 3, 3, natoms, natoms * ncells, natoms * ncells))
+#        coli = np.ravel_multi_index(
+#            (fullindex[3], fullindex[0], fullindex[4], fullindex[1],
+#             fullindex[5], fullindex[2]),
+#            (natoms, 3, natoms * ncells, 3, natoms * ncells, 3))
+#        print("fcs matrix has been calculated")
+#        datanew = np.concatenate((datanew, data))
+#        colinew = np.concatenate((colinew, coli))
+#        rowinew = np.concatenate((rowinew,
+#                                  np.array([k for nnz in range(len(coli))])))
+#
+#    mat_rec_ac_3rd = sp.sparse.coo_matrix(
+#        (datanew, (rowinew, colinew)),
+#        shape=(nirr_ac_3rd,
+#               natoms * natoms * natoms * ncells * ncells * 27)).tocsr()
+#    return mat_rec_ac_3rd
 
 
 def reconstruct_3rd_fcs(poscar,
@@ -390,58 +526,97 @@ def save_symmetry_information_3rd(n3rdorder, third, symm_acoustic=True):
     """
     Computes and saves the 2nd and 3rd order symmetry matrices.
     """
-    (natoms, crotations, equivalences, kernels, irreducible,
-     todo) = get_symmetry_information("SPOSCAR")
+
+    if(mpirank == 0): 
+        (natoms, crotations, equivalences, kernels, irreducible,
+         todo) = get_symmetry_information("SPOSCAR")
+    else:
+        natoms = None
+        crotations = None
+        equivalences = None
+        kernels = None
+        irreducible = None
+        todo = None
+
+    natoms = comm.bcast(natoms,root=0)
+    crotations = comm.bcast(crotations,root=0)
+    equivalences = comm.bcast(equivalences,root=0)
+    kernels = comm.bcast(kernels,root=0)
+    irreducible = comm.bcast(irreducible,root=0)
+    todo = comm.bcast(todo,root=0)
+    comm.Barrier()
+
     if (symm_acoustic):
         ker_ac, nirr_ac = acoustic_sum_rule(natoms, crotations, equivalences,
                                             kernels, irreducible, todo)
     else:
         nirr_ac = len(todo)
         ker_ac = np.identity(nirr_ac)
-    mat_rec_ac = [
-        reconstruct_fc_acoustic(
-            natoms, ker_ac, np.array([int(j == k) for j in range(nirr_ac)]),
-            crotations, equivalences, kernels, irreducible, symm_acoustic)
-        for k in range(nirr_ac)
-    ]
-    np.save(
-        "../mat_rec_ac_2nd_" + str(n3rdorder[0]) + "x" + str(n3rdorder[1]) +
-        "x" + str(n3rdorder[2]) + ".npy", mat_rec_ac)
+
+    # Divide the work among processes
+    # Calculate the base chunk size
+    base_chunk_size = nirr_ac // mpisize
+    remainder = nirr_ac % mpisize
+
+    # Calculate the start and end indices for each processor
+    start = mpirank * base_chunk_size + min(mpirank, remainder)
+    end = start + base_chunk_size + (1 if mpirank < remainder else 0)
+
+    mat_rec_ac_core = []
+    for k in range(start,end):
+        mat_rec_ac_core.append(reconstruct_fc_acoustic(natoms, ker_ac, np.array([int(j == k) for j in range(nirr_ac)]),crotations, equivalences, kernels, irreducible, symm_acoustic))
+
+    # Gather data from all processes
+    mat_rec_ac_all = comm.gather(mat_rec_ac_core, root=0)
+
+    if (mpirank == 0):
+        # Flatten list with all gathered chunks
+        mat_rec_ac = [mati for matcore in mat_rec_ac_all for mati in matcore]
+
+        np.save(
+            "../mat_rec_ac_2nd_" + str(n3rdorder[0]) + "x" + str(n3rdorder[1]) +
+            "x" + str(n3rdorder[2]) + ".npy", mat_rec_ac)
     if not third:
         return
+
     poscar = generate_conf.read_POSCAR("POSCAR")
     sposcar = thirdorder_common.gen_SPOSCAR(poscar, n3rdorder[0], n3rdorder[1],
                                             n3rdorder[2])
+
     if (symm_acoustic):
         (ker_ac_3rd, nirr_ac_3rd, wedge, list4,
          dmin, nequi, shifts, frange) = thirdorder_save.save(
              "save_sparse", n3rdorder[0], n3rdorder[1], n3rdorder[2],
              n3rdorder[3])
-        with open('out_sym', 'a') as file:
-            file.write("3rd order number of irreducible elements after " +
-                       "acoustic sum rule: " + str(nirr_ac_3rd) + "\n")
-        np.save(
-            "../ker_ac_3rd_" + str(n3rdorder[0]) + "x" + str(n3rdorder[1]) +
-            "x" + str(n3rdorder[2]) + "_" + str(n3rdorder[3]) + ".npy",
-            ker_ac_3rd)
+        if (mpirank == 0):
+            with open('out_sym', 'a') as file:
+                file.write("3rd order number of irreducible elements after " +
+                           "acoustic sum rule: " + str(nirr_ac_3rd) + "\n")
+            np.save(
+                "../ker_ac_3rd_" + str(n3rdorder[0]) + "x" + str(n3rdorder[1]) +
+                "x" + str(n3rdorder[2]) + "_" + str(n3rdorder[3]) + ".npy",
+                ker_ac_3rd)
     else:
         wedge, list4, dmin, nequi, shifts, frange = thirdorder_save.save(
             "return", n3rdorder[0], n3rdorder[1], n3rdorder[2], n3rdorder[3])
         nirr_ac_3rd = 0
         for ii in range(wedge.nlist):
-            print("nindependentbasis: " + str(wedge.nindependentbasis[ii]))
             nirr_ac_3rd += wedge.nindependentbasis[ii]
-        with open('out_sym', 'a') as file:
-            file.write("3rd order number of irreducible elements without" +
-                       " acoustic sum rule: " + str(nirr_ac_3rd) + "\n")
+        if (mpirank == 0):
+            with open('out_sym', 'a') as file:
+                file.write("3rd order number of irreducible elements without" +
+                           " acoustic sum rule: " + str(nirr_ac_3rd) + "\n")
         ker_ac_3rd = np.identity(nirr_ac_3rd)
+
+    comm.Barrier()    
     mat_rec_ac_3rd = calc_mat_rec_ac_3rd(poscar, sposcar, ker_ac_3rd,
                                          nirr_ac_3rd, wedge, list4, n3rdorder,
                                          symm_acoustic)
-    np.save(
-        "../mat_rec_ac_3rd_" + str(n3rdorder[0]) + "x" + str(n3rdorder[1]) +
-        "x" + str(n3rdorder[2]) + "_" + str(n3rdorder[3]) + ".npy",
-        mat_rec_ac_3rd)
+    if (mpirank == 0):
+        np.save(
+            "../mat_rec_ac_3rd_" + str(n3rdorder[0]) + "x" + str(n3rdorder[1]) +
+            "x" + str(n3rdorder[2]) + "_" + str(n3rdorder[3]) + ".npy",
+            mat_rec_ac_3rd)
     return
 
 

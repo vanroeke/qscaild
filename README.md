@@ -1,139 +1,131 @@
-## General description
+# README
 
-This code allows computing the 2nd- and 3rd-order force constants from small displacements and at finite temperature. It was contributed by Ambroise van Roekeghem, Jesús Carrete and Natalio Mingo.
+## General Info
 
-The software is mainly written in Python 3 and uses some common packages: [numpy](http://www.numpy.org/), [scipy](http://www.scipy.org/), [scikit-learn](https://scikit-learn.org/), and [mpi4py](https://github.com/mpi4py/mpi4py). It also requires [Phonopy](https://atztogo.github.io/phonopy/) and the C version of [spglib](https://atztogo.github.io/spglib/) by Atsushi Togo. The current DFT part is based on [VASP](https://www.vasp.at/), but the program could be easily adapted to be used with other DFT codes.
+This code computes 2nd- and 3rd-order force constants from small displacements and at finite temperature. It was developed by Ambroise van Roekeghem, Quintin N. Meier, Jesús Carrete, and Natalio Mingo.
 
-The third-order part of this code, adapted from the original [thirdorder.py](https://bitbucket.org/sousaw/thirdorder/), should be recompiled for your system by running `./compile.sh` after modifying the `setup.py` file.
+The software is primarily written in Python 3 and depends on several packages, including:
+- [numpy](http://www.numpy.org/)
+- [scipy](http://www.scipy.org/)
+- [scikit-learn](https://scikit-learn.org/)
+- [mpi4py](https://github.com/mpi4py/mpi4py)
+- [Phonopy](https://atztogo.github.io/phonopy/)
+- [Cython](https://cython.org/)
+- The C version of [spglib](https://atztogo.github.io/spglib/) by Atsushi Togo
 
-At present, the code can only handle isotropic thermal expansion or orthogonal lattices. There is an option to update the equilibrium position of atoms with a free parameter as a function of temperature, that requires additional `POSCAR_PARAM` and `SPOSCAR_PARAM` input files and is not documented yet.
+Currently, the DFT calculations rely on [VASP](https://www.vasp.at/), but the program could be adapted for other DFT codes.
 
-## Workflow and input files
+The third-order force constants module, derived from [thirdorder.py](https://bitbucket.org/sousaw/thirdorder/), requires compilation using `./compile.sh` after modifying `setup.py` to match the system.
 
-The main input file is called `parameters`, examples of which are given in the `test_dir` directory. Other input files include `POSCAR`, `SPOSCAR` (created by Phonopy), `POTCAR`, `INCAR` and `KPOINTS` files for the DFT calculations, and a starting `FORCE_CONSTANTS` file if small displacements are not used.
+The code supports active learning
 
-The symmetry-related parts of the program are not parallelized and have to be run once for a given system and supercell size. The symmetry files are written in the root directory and can be reused for different temperatures and volumes (however, be careful that the cutoff introduced in the 3rd-order part has to stay coherent with your new system).
+## Step-by-Step Installation
 
-Running the program performs one part of the self-consistent loop required by quantum self-consistent ab initio lattice dynamics: it reads the outputs of the previous DFT runs to compute the current interatomic force constants (or reads the starting force constants for the first loop), and produces input for the next DFT runs. The user then has to perform the DFT calculations by themselves (the relevant directories are mentioned in the `to_calc` file), before launching the program again for the next loop. Examples of how the full self-consistent loop can be performed within one single job are shown in the `test_dir` directory, but in general this will be system-dependent and for this reason additional support cannot be provided. To run one iteration of the program, just launch `mpirun -np $NUMBER_OF_CORES python $PATH_TO_THE_CODE/submit_qscaild.py` (or `python $PATH_TO_THE_CODE/submit_qscaild.py` for the serial version) from the folder containing your input files.
+1. **Install Dependencies via Conda**
+   - Create and activate a new Conda environment:
+     ```sh
+     conda create -n qscaild_env python=3.10
+     conda activate qscaild_env
+     ```
+   - Install dependencies:
+     ```sh
+     conda install numpy scipy scikit-learn mpi4py cython phonopy -c conda-forge
+     ```
+   - Ensure VASP and the C version of [spglib](https://github.com/spglib/spglib) are installed.
+   
+2. **Compile the Third-Order Code**
+   - Navigate to the directory containing `setup.py`.
+   - Modify `setup.py` if necessary for your system.
+   - Run:
+     ```sh
+     ./compile.sh
+     ```
+3. **Install mlip**
+    -If you want to use the machine learning functionalities, install the mlip package: https://gitlab.com/ashapeev/mlip-2
+  
 
-The program internally performs reweighting of the different configurations according to the current force constants, and convergence tests.
+4. **Adjust `calculator_config.py`**
+   - Open `calculator_config.py` in a text editor:
+     ```sh
+     nano $PATH_TO_THE_CODE/calculator_config.py
+     ```
+   - Modify the following lines to specify the correct paths:
+     ```python
+     qscaild_path = "/path/to/qscaild" # installation directory of the qscaild code  
+     vasp_exe="/path/to/vasp_std" #installation directory of vasp
+     mlip_exe="/path/to/mlp" #path to mlip exectuable (if machine learning potentials are used)
+     vasp_env=None #adjust using os.env if special modules need to be used for vasp
+     mlip_env=None #adjust using os.env if special modules need to be used for mlip
+     mpirun="mpirun" #MPI command on your system
+     ```
+## Running the code
+1. **Prepare Input Files**
+   - Ensure `parameters`, `POSCAR`, `SPOSCAR`, `POTCAR`, `INCAR`, `KPOINTS`, and (optionally) `FORCE_CONSTANTS` are correctly set up.
+2. If machine learning potentials are used, prepare a training set and a (empty) potential pot.mtp
 
-Below is an explanation of the value of the parameters:
+2. **Run the Code**
+   - Execute the program (automatically detects MPI)
+     ```sh
+     python /path/to/qscaild/run_qscaild.py
 
-* temperature of the calculation in kelvin
+     ```
 
-```
-T_K = 500
-```
 
-* number of displaced configurations in each cycle. Usually a total number of forces 10 times larger than the number of irreducible elements is a safe choice
 
-```
-nconf = 10
-```
+## Input Parameters
 
-* number of cycles. Usually 20 is more than enough to obtain convergence if the structure is kept fixed, otherwise it can be much longer
+### Core Parameters
+- **Temperature (Kelvin):** `T_K = 500`
+- **Number of displaced configurations:** `nconf = 10`
+- **Number of cycles:** `nfits = 5`
+- **Supercell size:** `n0 = 3`, `n1 = 3`, `n2 = 3`
+- **3rd-order force constants cutoff:** `cutoff = -5`
+- **Enable 3rd order calculation:** `third = True`
 
-```
-nfits = 5
-```
+### Volume and Pressure Control
+- **Iterative equilibrium volume calculation:** `use_pressure = cubic`  (Other options are "tetragonal" or "orthorhombic"
+- **Target stress tensor diagonal (in kB):** `pressure_diag = 0.,0.,0.`
 
-* supercell size
+### Execution Options
+- **Use small displacements:** `use_smalldisp = False`
+- **Compute symmetry matrices:** `calc_symm = True`
+- **Apply acoustic sum rule:** `symm_acoustic = True`
+- **Replace imaginary frequencies:** `imaginary_freq = 1.0`
+- **Mixing between cycles:** `mixing = 0.6`
+- **Memory between cycles:** `memory = 0.4`
+- **Thermal displacement matrix grid size:** `grid = 20`
+- **Convergence tolerance:** `tolerance = 0.01`
+- **Pressure convergence tolerance:** `pdiff = 2.0`
+- **Experimental acoustic sum rule enforcement:** `enforce_acoustic = False`
 
-```
-n0 = 3
-n1 = 3
-n2 = 3
-```
+### MLIP and active learning
+- **MLIP_mode:** `off` ('off'=DFT, 'mlip'=use machine learning potential, 'active_learning'= create mlip potential using active learning)
+- **MLIP_potential:** `/path/to/MLIP_potential`
+- **MLIP_train_set:** `/path/to/MLIP_train_set`
 
-* cutoff for the third order force constants. This can either be a length in nm or a negative integer specifying a number of nearest neighbors.
 
-```
-cutoff = -5
-```
+## Short Tutorial
 
-* whether to calculate 3rd order force constants or not
+### Example 1: Small Displacements
+1. Navigate to `test_dir/Si/Si_smalldisp`.
+2. Run:
+   ```sh
+   python ../../../submit_qscaild.py
+   ```
+3. The program computes symmetries and generates `config-*` directories.
+4. Run VASP in each `config-*` directory.
+5. Disable symmetry computation (`calc_symm = False`) in `parameters`.
+6. Relaunch the program to produce `FORCE_CONSTANTS`.
 
-```
-third = True
-```
+### Example 2: Finite Temperature Calculation
+1. Navigate to `test_dir/Si/Si_500K`.
+2. Run the program to generate `config-*` directories.
+3. Compute forces in each directory and relaunch the program.
+4. Check `out_convergence` for cycle convergence.
 
-* calculate the pressure to obtain the equilibrium volume iteratively. Values can be 'cubic', 'tetragonal', 'orthorhombic' or 'False', which means that no thermal expansion is considered
+### Example 3: Thermal Expansion
+1. Follow the same workflow as `Si_500K`, but in `test_dir/Si/Si_500K_volume`.
+2. Other examples, such as `test_dir/SrTiO3`, are available for more complex cases.
 
-```
-use_pressure = cubic
-```
+This README provides an overview of the workflow and execution of the program. Further system-specific adaptations may be required.
 
-* target for the diagonal of the stress tensor, in multiples kB
-
-```
-pressure_diag = 0.,0.,0.
-```
-
-* if True, use small displacements (in that case the value of the temperature is not used, the initial `FORCE_CONSTANTS` file is not necessary and one cycle is enough)
-
-```
-use_smalldisp = False
-```
-
-* calculate the symmetry matrices that will be saved in the root directory (has to be done once for a given supercell and cutoff)
-
-```
-calc_symm = True
-```
-
-* apply acoustic sum rule in the calculation of the symmetry matrices (recommended if computationally feasible)
-
-```
-symm_acoustic = True
-```
-
-* all imaginary frequencies are replaced with this value. If -1 is used, "negative" frequencies are switched to positive like in the original SCAILD method
-
-```
-imaginary_freq = 1.0
-```
-
-* mixing between two cycles to stabilize convergence (here, 60% of the force constants of the previous cycle are kept)
-
-```
-mixing = 0.6
-```
-
-* memory between different cycles, if equal to 1 all computed configurations are taken into account with their proper reweighting. Mind that the reweighing scheme is not correct if the volume varies, so memory should be decreased strongly in that case.
-
-```
-memory = 0.4
-```
-
-* size of the (uniform in each direction) grid to compute the thermal displacement matrix and Grüneisen parameters
-
-```
-grid = 20
-```
-
-* tolerance for the convergence of the force constants
-
-```
-tolerance = 0.01
-```
-
-* tolerance for the convergence of the target pressure
-
-```
-pdiff = 2.0
-```
-
-* non-recommended, experimental way to enforce the acoustic sum rule in 2nd-order force constants when it cannot be included in the symmetry matrices
-
-```
-enforce_acoustic = False
-```
-
-## Short tutorial
-
-Download the code and install all the dependencies on your system, then change directory to `$PATH_TO_YOUR_PROGRAM/test_dir/Si/Si_smalldisp`. This contains all the necessary input to compute the `FORCE_CONSTANTS` of silicon using small displacements. As you can see in the parameters file, it will also compute the symmetries of the system. You can just launch the program with `python ../../../submit_qscaild.py`. The part of the program that computes the symmetries is not parallel and can take some time to complete, depending of your system, so be patient. After completion, you should see information about the number of irreducible elements in the `out_sym` file, a bunch of directories `config-*`, and their list in the `to_calc` file. You need to run VASP in each of those folders, then switch off the computation of symmetries in the `parameters` file (`calc_symm = False`) and relaunch the program. This should produce a `FORCE_CONSTANTS` file, which will be close to what you would typically obtain using phonopy, for instance.
-
-You can now switch to the `test_dir/Si/Si_500K` directory and launch the program (it will reuse the same symmetry files that you just computed in the previous example and that are in the `test_dir/Si` directory). Again, a bunch of `config-*` directories are produced, you need to compute the forces for each of those inputs, and after relaunching the program you will obtain a `FORCE_CONSTANTS_1` file and a `FORCE_CONSTANTS_CURRENT` file. The `FORCE_CONSTANTS_1` is the result of the fit for the first iteration, and `FORCE_CONSTANTS_CURRENT` is after mixing with the previous force constants. You also have a new list of `config-*` input folders to compute in the `to_calc` file, so you can again run VASP for those folders and relaunch the program. After the second cycle, information about the convergence of the cycle is present in the `out_convergence` file (by comparing the `FORCE_CONSTANTS_PREVIOUS` and `FORCE_CONSTANTS_CURRENT` files), so you can monitor what is happening. You should mainly be careful about possible divergences, which can happen mostly because of too low values for the imaginary_freq parameter when the spectrum is unstable, or because of too small mixing.
-
-In the `test_dir/Si/Si_500K_volume` folder you have a similar example including thermal expansion. There is also input for similar calculations for the more interesting case of SrTiO3 in the `test_dir/SrTiO3` folder.

@@ -29,13 +29,14 @@ import pprint
 import datetime
 import logging
 import actions
+import calculator
+import mlip2vasp
 import time
 import numpy as np
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
-
-print("rank is "+str(rank))
+size = comm.Get_size()
 
 
 def str2bool(v):
@@ -69,7 +70,7 @@ use_pressure = "False"
 #Values of the pressure on the diagonal of the tensor
 pressure = np.array([0., 0., 0.])
 #If atomic positions are optimized
-optimize_positions = False
+optimize_positions = "False"
 #Whether small displacements are used
 use_smalldisp = False
 #Whether symmetries are computed
@@ -94,14 +95,20 @@ tolerance = 1e-2
 # in the stress tensor in kbar)
 pdiff = 1.0
 # Memory factor to accumulate configurations: all configurations starting from
-# floor(iteration*(1.0-memory)) are taken into account in the fit 
-# if memory is set to 0, only the configuration with the same lattice parameter
-# will be taken into account
+# floor(iteration*(1.0-memory)) are taken into account in the fit
 memory = 0.3
 # Mixing between fcs in differents iterations
 mixing = 0.
-# Accepted change between the iteration on the lattice param
-lattice_treshold = 0.005
+# Use machine learning interatomic potentials (requires MLIP installation)
+MLIP = False
+# MLIP mode ("train": train on all current configurations, "active_learning": enable on the fly learning, "mlip_only": use only potential, no active learning)
+MLIP_mode = "active_learning"
+#Location of training set
+MLIP_train_set = "train.cfg"
+#Location of potential
+MLIP_potential = "pot.mtp"
+
+
 
 # Read input file
 if rank == 0:
@@ -150,8 +157,16 @@ if rank == 0:
                 mixing = float(line.split("=")[1])
             if 'grid' in line:
                 grid = int(line.split("=")[1])
-            if 'lattice_treshold' in line:
-                lattice_treshold = float(line.split("=")[1])
+            if  'MLIP' in line:
+                MLIP = str2bool(line.split("=")[1])
+            if 'MLIP_mode' in line:
+                MLIP_mode = str(line.split("=")[1])
+            if 'MLIP_train_set' in line:
+                MLIP_train_set = str(line.split("=")[1])
+            if 'MLIP_potential' in line:
+                MLIP_potential = str(line.split("=")[1])
+
+
     print("T = " + str(T) + " K")
     print("nconf = " + str(nconf))
     print("nfits = " + str(nfits))
@@ -171,7 +186,13 @@ if rank == 0:
     print("grid for the calculation of the phonon quantities = " + str(grid))
     print("mixing = " + str(mixing))
     print("optimize positions = " + str(optimize_positions))
-    print("lattice_treshold = " + str(lattice_treshold))
+    if MLIP:
+        print("MLIP mode = " + str(MLIP_mode))
+        print("Training set =" + MLIP_train_set)
+        print("MLIP potential =" + MLIP_potential)
+
+    
+
 T = comm.bcast(T, root=0)
 nconf = comm.bcast(nconf, root=0)
 nfits = comm.bcast(nfits, root=0)
@@ -193,7 +214,10 @@ memory = comm.bcast(memory, root=0)
 enforce_acoustic = comm.bcast(enforce_acoustic, root=0)
 grid = comm.bcast(grid, root=0)
 mixing = comm.bcast(mixing, root=0)
-lattice_treshold = comm.bcast(lattice_treshold, root=0)
+MLIP = comm.bcast(MLIP, root=0)
+MLIP_mode = comm.bcast(MLIP_mode, root=0)
+MLIP_train_set = comm.bcast(MLIP_train_set, root=0)
+MLIP_potential = comm.bcast(MLIP_potential, root=0)
 
 n = [n0, n1, n2]
 
@@ -207,8 +231,46 @@ if (not os.path.isfile("FORCE_CONSTANTS")) and (not use_smalldisp):
 os.sync()
 comm.Barrier()
 
-actions.fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
+
+while not os.path.isfile('finished'):
+    calc_dirs=actions.fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                             pressure, optimize_positions, use_smalldisp, calc_symm, symm_acoustic,
                             imaginary_freq, enforce_acoustic, grid, tolerance,
-                            pdiff, memory, mixing, lattice_treshold)
-sys.exit(0)
+                            pdiff, memory, mixing)
+    if not MLIP:
+        if rank==0:
+            for i in calc_dirs:
+               calculator.vasprun(i)
+               comm.Barrier()
+    if MLIP:
+        #create cfg files
+        for dirs in calc_dirs:
+            mlip2vasp.poscar2cfg(os.path.join(dirs,"POSCAR"),os.path.join(dirs,"config.cfg"))
+
+
+        if MLIP_mode=="active_learning":
+            grades=np.zeros(len(calc_dir))
+            for i in range(rank,len(calc_dirs),size): #Calculation of grad parallelized over directories
+                grades[i]=calculator.grade(calc_dirs[i])
+            comm.Barrier()
+            if rank==0:
+                rcv_buf=np.zeros(len(calc_dir))
+            else:
+                rcv_buf=None
+            comm.Reduce(grades,rcv_buf,op=MPI.SUM,root=0)
+            if rank==0:
+                grades=rcv_buf
+                print(grades)
+                for it in range(len(grades)):
+                    if grades[i] != 0:
+                        calculator.vasprun(calc_dirs[it])
+                        comm.Barrier()
+                        calculator.add_to_train(calc_dirs[it],MLIP_train_set)
+        
+       
+        if MLIP_mode=="mlip_only":
+            for i in calc_dirs:
+                calculator.mlip(i)
+     
+
+       

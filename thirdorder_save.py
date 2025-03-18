@@ -36,6 +36,10 @@ import thirdorder_core
 from thirdorder_common import *
 import scipy as sp
 import numpy as np
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+mpirank = comm.Get_rank()
+mpisize = comm.Get_size()
 
 
 def read_POSCAR(directory):
@@ -175,6 +179,24 @@ def complete_constraints(coefficients):
     return nruter
 
 
+def generate_ifcs(wedge, list4, poscar, sposcar, ntotirr, start, end):
+    for i in range(start, end):
+        phi = np.zeros(ntotirr)
+        phi[i] = 1.
+        sum_rule_i = sp.sparse.coo_matrix(
+            np.ravel(
+                np.sum(
+                    thirdorder_core.reconstruct_ifcs_philist(
+                        phi, wedge, list4, poscar, sposcar),
+                    axis=5)))
+        sum_rule_rowi, sum_rule_coli = sum_rule_i.nonzero()
+        sum_rule_data = sum_rule_i.data
+        #ATTENTION: NEED TO PUT COL INDEX TO ROW INDEX
+        sum_rule_row = sum_rule_coli
+        sum_rule_col = np.array([i for nnz in range(len(sum_rule_coli))])
+        yield sum_rule_data, sum_rule_row, sum_rule_col
+
+
 def save(action, na, nb, nc, cutoff):
     if min(na, nb, nc) < 1:
         sys.exit("Error: na, nb and nc must be positive integers")
@@ -280,54 +302,72 @@ def save(action, na, nb, nc, cutoff):
                    "FORCE_CONSTANTS_3RD")
     elif action == "save_sparse":
         np.set_printoptions(threshold=sys.maxsize)
-        print("save the symmetry elements used to fit anharmonic forces")
-        print("nlist: " + str(wedge.nlist))
+#        print("save the symmetry elements used to fit anharmonic forces")
+#        print("nlist: " + str(wedge.nlist))
         ntotirr = 0
         for ii in range(wedge.nlist):
-            print("nindependentbasis: " + str(wedge.nindependentbasis[ii]))
+#            print("nindependentbasis: " + str(wedge.nindependentbasis[ii]))
             ntotirr += wedge.nindependentbasis[ii]
-        with open('out_sym', 'a') as file:
-            file.write(
-                "3rd order number of irreducible elements before acoustic sum rule: "
-                + str(ntotirr) + "\n")
+        if (mpirank == 0):
+            with open('out_sym', 'a') as file:
+                file.write(
+                    "3rd order number of irreducible elements before acoustic sum rule: "
+                    + str(ntotirr) + "\n")
 
+        # Divide the work among processes
+        # Calculate the base chunk size
+        base_chunk_size = ntotirr // mpisize
+        remainder = ntotirr % mpisize
+    
+        # Calculate the start and end indices for each processor
+        start = mpirank * base_chunk_size + min(mpirank, remainder)
+        end = start + base_chunk_size + (1 if mpirank < remainder else 0)
+    
         sum_rule_data = np.array([])
         sum_rule_col = np.array([])
         sum_rule_row = np.array([])
-        for i in range(ntotirr):
-            print("element " + str(i))
-            phi = np.zeros(ntotirr)
-            phi[i] = 1.
-            sum_rule_i = sp.sparse.coo_matrix(
-                np.ravel(
-                    np.sum(
-                        thirdorder_core.reconstruct_ifcs_philist(
-                            phi, wedge, list4, poscar, sposcar),
-                        axis=5)))
-            sum_rule_rowi, sum_rule_coli = sum_rule_i.nonzero()
-            sum_rule_data = np.concatenate((sum_rule_data, sum_rule_i.data))
-            #ATTENTION: NEED TO PUT COL INDEX TO ROW INDEX
-            sum_rule_row = np.concatenate((sum_rule_row, sum_rule_coli))
-            sum_rule_col = np.concatenate(
-                (sum_rule_col,
-                 np.array([i for nnz in range(len(sum_rule_coli))])))
-        sum_rule = sp.sparse.coo_matrix(
-            (sum_rule_data, (sum_rule_row, sum_rule_col)),
-            shape=(natoms * ntot * 27, ntotirr)).tocsr()
 
-        print("acoustic sum rule constraint begins")
-        print("calculate kernel")
+        for datai, rowi, coli in generate_ifcs(wedge, list4, poscar, sposcar, ntotirr, start, end):
+            sum_rule_data = np.concatenate((sum_rule_data, datai))
+            sum_rule_row = np.concatenate((sum_rule_row, rowi))
+            sum_rule_col = np.concatenate((sum_rule_col, coli))
 
-        sum_rule = sum_rule.todense()
-        rank = np.linalg.matrix_rank(sum_rule, tol=1.e-10)
-        v = sp.linalg.svd(sum_rule, full_matrices=False)[2].T
+        # Gather data from all processes
+        sum_rule_data_all = comm.gather(sum_rule_data, root=0)
+        sum_rule_row_all = comm.gather(sum_rule_row, root=0)
+        sum_rule_col_all = comm.gather(sum_rule_col, root=0)
+    
+        if (mpirank == 0):
+            # Concatenate all gathered chunks
+            sum_rule_data = np.concatenate(sum_rule_data_all)
+            sum_rule_row = np.concatenate(sum_rule_row_all)
+            sum_rule_col = np.concatenate(sum_rule_col_all)
 
-        print("rank = " + str(rank))
-        ker_ac = v[:, rank - ntotirr:]
-        nirr_ac = ntotirr - rank
-        print("acoustic sum rule constraint finished")
-        print("number of elements before acoustic sum rule: " + str(ntotirr))
-        print("number of elements after acoustic sum rule: " + str(nirr_ac))
+            sum_rule = sp.sparse.coo_matrix(
+                (sum_rule_data, (sum_rule_row, sum_rule_col)),
+                shape=(natoms * ntot * 27, ntotirr)).tocsr()
+
+#            print("acoustic sum rule constraint begins")
+#            print("calculate kernel")
+
+            sum_rule = sum_rule.todense()
+            rank = np.linalg.matrix_rank(sum_rule, tol=1.e-10)
+            v = sp.linalg.svd(sum_rule, full_matrices=False)[2].T
+
+#            print("rank = " + str(rank))
+            ker_ac = v[:, rank - ntotirr:]
+            nirr_ac = ntotirr - rank
+
+        else:
+            ker_ac = None
+            nirr_ac = None
+
+        ker_ac = comm.bcast(ker_ac, root=0)
+        nirr_ac = comm.bcast(nirr_ac, root=0)
+
+#        print("acoustic sum rule constraint finished")
+#        print("number of elements before acoustic sum rule: " + str(ntotirr))
+#        print("number of elements after acoustic sum rule: " + str(nirr_ac))
         return [ker_ac, nirr_ac, wedge, list4, dmin, nequi, shifts, frange]
     else:
         return [wedge, list4, dmin, nequi, shifts, frange]
