@@ -109,9 +109,9 @@ The code supports active learning
 - **Experimental acoustic sum rule enforcement:** `enforce_acoustic = False`
 
 ### MLIP and active learning
-- **MLIP_mode:** `off` ('off'=DFT, 'mlip'=use machine learning potential, 'active_learning'= create mlip potential using active learning)
-- **MLIP_potential:** `/path/to/MLIP_potential`
-- **MLIP_train_set:** `/path/to/MLIP_train_set`
+- **MLIP_mode:** `MLIP_mode="off"` ('off'=DFT, 'mlip'=use machine learning potential, 'active_learning'= create mlip potential using active learning)
+- **MLIP_potential:** `MLIP_potential="/path/to/MLIP_potential"`
+- **MLIP_train_set:** `MLIP_train_set="/path/to/MLIP_train_set"`
 
 
 ## Short Tutorial
