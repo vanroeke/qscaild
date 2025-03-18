@@ -83,7 +83,7 @@ The code supports active learning
 - **Enable 3rd order calculation:** `third = True`
 
 ### Volume and Pressure Control
-- **Iterative equilibrium volume calculation:** `use_pressure = cubic`  (Other options are "tetragonal" or "orthorhombic"
+- **Iterative equilibrium volume calculation:** `use_pressure = cubic`  (Other options are "tetragonal" or "orthorhombic")
 - **Target stress tensor diagonal (in kB):** `pressure_diag = 0.,0.,0.`
 
 ### Execution Options
@@ -110,10 +110,10 @@ The code supports active learning
 1. Navigate to `test_dir/Si/Si_smalldisp`.
 2. Run:
    ```sh
-   python ../../../submit_qscaild.py
+   python /path/to/qscaild/run_qscaild.py
    ```
 3. The program computes symmetries and generates `config-*` directories.
-4. Run VASP in each `config-*` directory.
+4. The program runs VASP in each `config-*` directory.
 5. Disable symmetry computation (`calc_symm = False`) in `parameters`.
 6. Relaunch the program to produce `FORCE_CONSTANTS`.
 
