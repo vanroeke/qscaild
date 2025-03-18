@@ -61,9 +61,19 @@ The code supports active learning
 ## Running the code
 1. **Prepare Input Files**
    - Ensure `parameters`, `POSCAR`, `SPOSCAR`, `POTCAR`, `INCAR`, `KPOINTS`, and (optionally) `FORCE_CONSTANTS` are correctly set up.
-2. If machine learning potentials are used, prepare a training set and a (empty) potential pot.mtp
+   -`parameters` contains all the input parameters for qscaild
+   -`POSCAR` contains the atomic positions of the unit cell
+   -`SPOSCAR` contains the atomic positions of the supercell
+   -`POTCAR`,`INCAR` and `KPOINTS` are parameters for the DFT calculations
+   When creating the input files, the supercell can easily be created using phonopy:
+   ```sh
+   phonopy -d --dim="n0 n1 n2"
+   ```
+   where `n0` `n1` and `n2` describe the supercell dimension along each axis 
+   
+2. If machine learning potentials are used, prepare a training set `train.cfg` and an (empty) potential `pot.mtp`
 
-2. **Run the Code**
+3. **Run the Code**
    - Execute the program (automatically detects MPI)
      ```sh
      python /path/to/qscaild/run_qscaild.py
