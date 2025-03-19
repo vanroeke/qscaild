@@ -17,7 +17,7 @@ Currently, the DFT calculations rely on [VASP](https://www.vasp.at/), but the pr
 
 The third-order force constants module, derived from [thirdorder.py](https://bitbucket.org/sousaw/thirdorder/), requires compilation using `./compile.sh` after modifying `setup.py` to match the system.
 
-The code supports active learning
+QSCAILD supports the use of moment tensor potentials, which are available at [mlip](https://gitlab.com/ashapeev/mlip-2).
 
 ## Step-by-Step Installation
 
@@ -33,8 +33,7 @@ The code supports active learning
      ```
    - Ensure VASP and the C version of [spglib](https://github.com/spglib/spglib) are installed on your system.
    
-   - QSCAILD supports the use of moment tensor potentials, which need to be compiled separately
-   - Download and compilation instructions for the mlip package: [mlip](https://gitlab.com/ashapeev/mlip-2)
+   - If machine learning potentials are desired, compile the mlip package [mlip](https://gitlab.com/ashapeev/mlip-2).
    
 2. **Compile the Third-Order Code**
    - Navigate to the directory containing `setup.py`.
