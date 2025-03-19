@@ -31,7 +31,10 @@ The code supports active learning
      ```sh
      conda install numpy scipy scikit-learn mpi4py cython phonopy -c conda-forge
      ```
-   - Ensure VASP and the C version of [spglib](https://github.com/spglib/spglib) are installed.
+   - Ensure VASP and the C version of [spglib](https://github.com/spglib/spglib) are installed on your system.
+   
+   - QSCAILD supports the use of moment tensor potentials, which need to be compiled separately
+   - Download and compilation instructions for the mlip package: [mlip](https://gitlab.com/ashapeev/mlip-2)
    
 2. **Compile the Third-Order Code**
    - Navigate to the directory containing `setup.py`.
@@ -39,12 +42,9 @@ The code supports active learning
    - Run:
      ```sh
      ./compile.sh
-     ```
-3. **Install mlip**
-    -If you want to use the machine learning functionalities, install the mlip package: https://gitlab.com/ashapeev/mlip-2
-  
+     ```  
 
-4. **Adjust `calculator_config.py`**
+3. **Adjust `calculator_config.py`**
    - Open `calculator_config.py` in a text editor:
      ```sh
      nano $PATH_TO_THE_CODE/calculator_config.py
@@ -66,17 +66,17 @@ The code supports active learning
    - `POTCAR`,`INCAR` and `KPOINTS` are parameters for the DFT calculations
    - `FORCE_CONSTANTS` (optional) contains the initial force constants.
    
-   When creating the input files, the supercell can easily be created using phonopy:
+   When creating the input files, the supercell (`SPOSCAR`) can easily be created using phonopy:
    ```sh
    phonopy -d --dim="n0 n1 n2"
    ```
-   where `n0` `n1` and `n2` describe the supercell dimension along each axis
+   where `n0` `n1` and `n2` describe the supercell dimension along each axis.
    If the `FORCE_CONSTANTS` are not provided, an initial set of force constants must be calculated using `use_smalldisp=True`.
    
 2. If machine learning potentials are used, prepare a training set `train.cfg` and an (empty) potential `pot.mtp`
 
 3. **Run the Code**
-   - Execute the program (automatically detects MPI)
+   - Execute the program (internally calls MPI)
      ```sh
      python /path/to/qscaild/run_qscaild.py
 
