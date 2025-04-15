@@ -97,20 +97,23 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
                     " har_forces text, har_energy real, stress real, lattice real)")
                 conn.commit()
                 conn.close()
-            if calc_symm:
-                symmetry.save_symmetry_information_3rd(
-                    [n[0], n[1], n[2], cutoff], third, symm_acoustic)
-            comm.Barrier()
+
+                with open("iteration", "w") as f:
+                    f.write(str(iteration) + "\n")
 
             calc_dirs=renew_configurations(nconf, T, n, iteration, "POSCAR", "SPOSCAR",
                                  "FORCE_CONSTANTS", use_smalldisp,
                                  imaginary_freq, grid)
 
-            if mpirank == 0:
-                with open("iteration", "w") as f:
-                    f.write(str(iteration) + "\n")
             os.sync()
             comm.Barrier()
+
+            if calc_symm:
+                symmetry.save_symmetry_information_2nd([n[0], n[1], n[2]], symm_acoustic)
+                if third:
+                    symmetry.save_symmetry_information_3rd([n[0], n[1], n[2], cutoff], symm_acoustic)
+
+            os.sync()
 
         return
 
@@ -316,13 +319,14 @@ def fit_force_constants(nconf, nfits, T, n, cutoff, third, use_pressure,
 
 
         if third:
-            phifull = symmetry.reconstruct_3rd_fcs(poscar, sposcar, ker_ac_3rd,
+            sposcar_3rd = thirdorder_common.gen_SPOSCAR(poscar, n[0], n[1], n[2])
+            phifull = symmetry.reconstruct_3rd_fcs(poscar, sposcar_3rd, ker_ac_3rd,
                                                    coef_3rd, wedge, list4,
                                                    symm_acoustic)
             thirdorder_common.write_ifcs(
-                phifull, poscar, sposcar, dmin, nequi, shifts, frange,
+                phifull, poscar, sposcar_3rd, dmin, nequi, shifts, frange,
                 "FORCE_CONSTANTS_FIT_3RD_" + str(iteration))
-            thirdorder_common.write_ifcs(phifull, poscar, sposcar, dmin, nequi,
+            thirdorder_common.write_ifcs(phifull, poscar, sposcar_3rd, dmin, nequi,
                                          shifts, frange,
                                          "FORCE_CONSTANTS_CURRENT_3RD")
 

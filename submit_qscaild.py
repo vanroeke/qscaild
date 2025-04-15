@@ -33,10 +33,7 @@ import time
 import numpy as np
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
-rank = comm.Get_rank()
-
-print("rank is "+str(rank))
-
+mpirank = comm.Get_rank()
 
 def str2bool(v):
     return v.lower().strip() in ("yes", "true", "t", "1")
@@ -104,7 +101,7 @@ mixing = 0.
 lattice_treshold = 0.005
 
 # Read input file
-if rank == 0:
+if mpirank == 0:
     with open("parameters", 'r') as f:
         for line in f.readlines():
             if 'T_K' in line:

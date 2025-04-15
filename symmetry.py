@@ -439,18 +439,32 @@ def calc_mat_rec_ac_3rd(poscar, sposcar, ker_ac_3rd, nirr_ac_3rd, wedge, list4, 
     colinew_all = comm.gather(colinew, root=0)
     rowinew_all = comm.gather(rowinew, root=0)
 
+    del datanew
+    del colinew
+    del rowinew
+
+    comm.Barrier()
+    gc.collect()
+
     if (mpirank == 0):
         # Concatenate all gathered chunks
-        datanew = np.concatenate(datanew_all)
-        colinew = np.concatenate(colinew_all)
-        rowinew = np.concatenate(rowinew_all)
+        datanew_all = np.concatenate(datanew_all)
+        colinew_all = np.concatenate(colinew_all)
+        rowinew_all = np.concatenate(rowinew_all)
+    else:
+        print("Terminate slave process "+str(mpirank)+" to effectively free memory")
+        sys.exit(0) 
+
+    gc.collect()
+
+    if (mpirank == 0):
 
         natoms = poscar["numbers"].sum()
         ncells = n3rdorder[0] * n3rdorder[1] * n3rdorder[2]
         mat_rec_ac_3rd = sp.sparse.coo_matrix(
-            (datanew, (rowinew, colinew)),
+            (datanew_all, (rowinew_all, colinew_all)),
             shape=(nirr_ac_3rd,
-                   natoms * natoms * natoms * ncells * ncells * 27)).tocsr()
+                   natoms * natoms * natoms * ncells * ncells * 27))
         return mat_rec_ac_3rd
     else:
         return None
@@ -522,9 +536,9 @@ def reconstruct_3rd_fcs(poscar,
     return fcs_3rd_1cell
 
 
-def save_symmetry_information_3rd(n3rdorder, third, symm_acoustic=True):
+def save_symmetry_information_2nd(n2ndorder, symm_acoustic=True):
     """
-    Computes and saves the 2nd and 3rd order symmetry matrices.
+    Computes and saves the 2nd order symmetry matrice.
     """
 
     if(mpirank == 0): 
@@ -574,10 +588,12 @@ def save_symmetry_information_3rd(n3rdorder, third, symm_acoustic=True):
         mat_rec_ac = [mati for matcore in mat_rec_ac_all for mati in matcore]
 
         np.save(
-            "../mat_rec_ac_2nd_" + str(n3rdorder[0]) + "x" + str(n3rdorder[1]) +
-            "x" + str(n3rdorder[2]) + ".npy", mat_rec_ac)
-    if not third:
-        return
+            "../mat_rec_ac_2nd_" + str(n2ndorder[0]) + "x" + str(n2ndorder[1]) +
+            "x" + str(n2ndorder[2]) + ".npy", mat_rec_ac)
+    return
+
+
+def save_ker_ac_3rd_and_return_mat_rec_ac_3rd(n3rdorder, symm_acoustic=True):
 
     poscar = generate_conf.read_POSCAR("POSCAR")
     sposcar = thirdorder_common.gen_SPOSCAR(poscar, n3rdorder[0], n3rdorder[1],
@@ -612,11 +628,24 @@ def save_symmetry_information_3rd(n3rdorder, third, symm_acoustic=True):
     mat_rec_ac_3rd = calc_mat_rec_ac_3rd(poscar, sposcar, ker_ac_3rd,
                                          nirr_ac_3rd, wedge, list4, n3rdorder,
                                          symm_acoustic)
+
+    return mat_rec_ac_3rd
+
+
+def save_symmetry_information_3rd(n3rdorder, symm_acoustic=True):
+    """
+    Computes and saves the 3rd order symmetry matrices.
+    """
+
+    mat_rec_ac_3rd = save_ker_ac_3rd_and_return_mat_rec_ac_3rd(n3rdorder, symm_acoustic)
+
+    gc.collect()
+
     if (mpirank == 0):
         np.save(
             "../mat_rec_ac_3rd_" + str(n3rdorder[0]) + "x" + str(n3rdorder[1]) +
             "x" + str(n3rdorder[2]) + "_" + str(n3rdorder[3]) + ".npy",
-            mat_rec_ac_3rd)
+            mat_rec_ac_3rd.tocsr())
     return
 
 
