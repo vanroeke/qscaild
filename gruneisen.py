@@ -91,12 +91,12 @@ def mode_gruneisen(f, psii, psij, massesi, massesj, cartesian_positions,
 
     psieps = fcs_3rd * psii * psij * factorj / np.sqrt(massesi * massesj) 
 
-    sumijk00 = np.sum(psieps[abc[:,2]==0] * cartesian_positions[abc[:,2]==0])
-    sumijk11 = np.sum(psieps[abc[:,2]==1] * cartesian_positions[abc[:,2]==1])
-    sumijk22 = np.sum(psieps[abc[:,2]==2] * cartesian_positions[abc[:,2]==2])
-    sumijk01 = 0.5*np.sum(psieps[abc[:,2]==0] * cartesian_positions[abc[:,2]==1] + psieps[abc[:,2]==1] * cartesian_positions[abc[:,2]==0]) 
-    sumijk02 = 0.5*np.sum(psieps[abc[:,2]==0] * cartesian_positions[abc[:,2]==2] + psieps[abc[:,2]==2] * cartesian_positions[abc[:,2]==0]) 
-    sumijk12 = 0.5*np.sum(psieps[abc[:,2]==1] * cartesian_positions[abc[:,2]==2] + psieps[abc[:,2]==2] * cartesian_positions[abc[:,2]==1]) 
+    sumijk00 = -np.sum(psieps[abc[:,2]==0] * cartesian_positions[abc[:,2]==0])
+    sumijk11 = -np.sum(psieps[abc[:,2]==1] * cartesian_positions[abc[:,2]==1])
+    sumijk22 = -np.sum(psieps[abc[:,2]==2] * cartesian_positions[abc[:,2]==2])
+    sumijk01 = -0.5*np.sum(psieps[abc[:,2]==0] * cartesian_positions[abc[:,2]==1] + psieps[abc[:,2]==1] * cartesian_positions[abc[:,2]==0]) 
+    sumijk02 = -0.5*np.sum(psieps[abc[:,2]==0] * cartesian_positions[abc[:,2]==2] + psieps[abc[:,2]==2] * cartesian_positions[abc[:,2]==0]) 
+    sumijk12 = -0.5*np.sum(psieps[abc[:,2]==1] * cartesian_positions[abc[:,2]==2] + psieps[abc[:,2]==2] * cartesian_positions[abc[:,2]==1]) 
 
     mode_gruneisen = np.array([sumijk00, sumijk11, sumijk22, sumijk01, sumijk02, sumijk12])
     mode_gruneisen *= 1.e-24 * 1.e20 * 1.6e-19 / 2. / 4. / np.pi / np.pi / f / f / codata.physical_constants["atomic mass constant"][0]
